@@ -3,7 +3,7 @@ kind: Plugin
 metadata:
   name: wild
 spec:
-  version: v0.1.0
+  version: v0.0.1
   homepage: https://github.com/alex-vee-sh/kube-wild
   shortDescription: "Use wildcard patterns for kubectl get/delete"
   description: |
@@ -16,7 +16,7 @@ spec:
       matchLabels:
         os: darwin
         arch: amd64
-    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_darwin_amd64.tar.gz
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.0.1/kubectl-wild_darwin_amd64.tar.gz
     sha256: "REPLACE_WITH_SHA256"
     bin: kubectl-wild
     files:
@@ -26,7 +26,7 @@ spec:
       matchLabels:
         os: darwin
         arch: arm64
-    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_darwin_arm64.tar.gz
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.0.1/kubectl-wild_darwin_arm64.tar.gz
     sha256: "REPLACE_WITH_SHA256"
     bin: kubectl-wild
     files:
@@ -36,7 +36,7 @@ spec:
       matchLabels:
         os: linux
         arch: amd64
-    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_linux_amd64.tar.gz
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.0.1/kubectl-wild_linux_amd64.tar.gz
     sha256: "REPLACE_WITH_SHA256"
     bin: kubectl-wild
     files:
@@ -46,7 +46,7 @@ spec:
       matchLabels:
         os: linux
         arch: arm64
-    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_linux_arm64.tar.gz
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.0.1/kubectl-wild_linux_arm64.tar.gz
     sha256: "REPLACE_WITH_SHA256"
     bin: kubectl-wild
     files:

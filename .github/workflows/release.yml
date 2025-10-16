@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Build matrices
+        run: |
+          mkdir -p dist
+          for os in linux darwin; do
+            for arch in amd64 arm64; do
+              echo "Building $os/$arch"
+              GOOS=$os GOARCH=$arch GO111MODULE=on go build -o kubectl-wild .
+              tar -czf dist/kubectl-wild_${os}_${arch}.tar.gz kubectl-wild
+              rm -f kubectl-wild
+            done
+          done
+      - name: Create release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/kubectl-wild_linux_amd64.tar.gz
+            dist/kubectl-wild_linux_arm64.tar.gz
+            dist/kubectl-wild_darwin_amd64.tar.gz
+            dist/kubectl-wild_darwin_arm64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
