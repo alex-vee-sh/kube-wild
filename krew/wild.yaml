@@ -1,0 +1,55 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: wild
+spec:
+  version: v0.1.0
+  homepage: https://github.com/alex-vee-sh/kube-wild
+  shortDescription: "Use wildcard patterns for kubectl get/delete"
+  description: |
+    kubectl-wild adds simple wildcard matching for resource names, then delegates to kubectl.
+    Examples:
+      kubectl wild get pods 'a*' -n default
+      kubectl wild delete pods 'te*' -n default
+  platforms:
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: amd64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_darwin_amd64.tar.gz
+    sha256: "REPLACE_WITH_SHA256"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: arm64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_darwin_arm64.tar.gz
+    sha256: "REPLACE_WITH_SHA256"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+  - selector:
+      matchLabels:
+        os: linux
+        arch: amd64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_linux_amd64.tar.gz
+    sha256: "REPLACE_WITH_SHA256"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/v0.1.0/kubectl-wild_linux_arm64.tar.gz
+    sha256: "REPLACE_WITH_SHA256"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+

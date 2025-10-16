@@ -1,0 +1,11 @@
+# Binaries
+kubectl-wild
+
+# Build artifacts
+dist/
+bin/
+build/
+
+# OS files
+.DS_Store
+
