@@ -23,9 +23,15 @@ jobs:
             for arch in amd64 arm64; do
               echo "Building $os/$arch"
               GOOS=$os GOARCH=$arch GO111MODULE=on go build -o kubectl-wild .
-              tar -czf dist/kubectl-wild_${os}_${arch}.tar.gz kubectl-wild
+              tar -czf dist/kubectl-wild_${os}_${arch}.tar.gz kubectl-wild LICENSE
               rm -f kubectl-wild
             done
+          done
+      - name: Compute checksums
+        run: |
+          cd dist
+          for f in *.tar.gz; do
+            sha256sum "$f" >> SHA256SUMS.txt
           done
       - name: Create release assets
         uses: softprops/action-gh-release@v2
@@ -35,5 +41,6 @@ jobs:
             dist/kubectl-wild_linux_arm64.tar.gz
             dist/kubectl-wild_darwin_amd64.tar.gz
             dist/kubectl-wild_darwin_arm64.tar.gz
+            dist/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

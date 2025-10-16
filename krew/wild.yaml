@@ -22,6 +22,8 @@ spec:
     files:
     - from: "kubectl-wild"
       to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
   - selector:
       matchLabels:
         os: darwin
@@ -32,6 +34,8 @@ spec:
     files:
     - from: "kubectl-wild"
       to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
   - selector:
       matchLabels:
         os: linux
@@ -42,6 +46,8 @@ spec:
     files:
     - from: "kubectl-wild"
       to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
   - selector:
       matchLabels:
         os: linux
@@ -52,4 +58,6 @@ spec:
     files:
     - from: "kubectl-wild"
       to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
 
