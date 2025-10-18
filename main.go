@@ -20,6 +20,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --prefix foo -n default   # same as 'foo*'\n")
 	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -p foo -n default        # short for --prefix\n")
 	// logs intentionally not supported; prefer stern
+	fmt.Fprintf(os.Stderr, "\nPreview & color flags (delete): --no-color, --preview table\n")
 }
 
 func main() {
@@ -73,18 +74,17 @@ func runCommand(runner Runner, opts CLIOptions) error {
 		return runVerbPerScope(runner, "describe", opts, matched)
 	case VerbDelete:
 		if !opts.Yes && !opts.DryRun {
-			// Build preview listing as ns/name when in -A mode for clarity
-			var preview []string
-			if opts.AllNamespaces {
-				for _, m := range matched {
-					preview = append(preview, m.ns+"/"+m.name)
+			previewMode := opts.Preview
+			if previewMode == "" && opts.AllNamespaces {
+				previewMode = "table"
+			}
+			if previewMode == "table" {
+				if err := previewAsTable(runner, opts, matched); err != nil {
+					return err
 				}
 			} else {
-				for _, m := range matched {
-					preview = append(preview, m.name)
-				}
+				previewAsList(opts, matched)
 			}
-			fmt.Printf("About to delete %d %s: %s\n", len(matched), opts.Resource, strings.Join(preview, ", "))
 			confirmed, err := promptYesNo("Proceed? [y/N]: ")
 			if err != nil {
 				return err
@@ -115,7 +115,8 @@ func runCommand(runner Runner, opts CLIOptions) error {
 }
 
 func promptYesNo(prompt string) (bool, error) {
-	fmt.Print(prompt)
+	// Always print confirmation prompt in bright red to draw attention
+	fmt.Print("\x1b[31;1m" + prompt + "\x1b[0m")
 	reader := bufio.NewReader(os.Stdin)
 	text, err := reader.ReadString('\n')
 	if err != nil {
@@ -201,7 +202,8 @@ func runVerbPerScope(runner Runner, verb string, opts CLIOptions, matched []matc
 	// All-namespaces
 	finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
 	if verb == "get" {
-		return runGetAllNamespacesSingleTable(runner, opts, matched, finalFlags)
+		// Prefer a single kubectl call with ns/name targets and -A so kubectl prints the NAMESPACE column
+		return runGetAcrossNamespaces(runner, opts, matched)
 	}
 	nsToNames := map[string][]string{}
 	for _, m := range matched {
@@ -253,6 +255,46 @@ func runBatched(runner Runner, verb string, resource string, targets []string, f
 		}
 	}
 	return nil
+}
+
+func ensureAllNamespacesFlag(flags []string) []string {
+	for _, f := range flags {
+		if f == "-A" || f == "--all-namespaces" {
+			return flags
+		}
+	}
+	return append(flags, "-A")
+}
+
+func runBatchedNsName(runner Runner, verb string, targets []string, finalFlags []string, extra []string, batchSize int, suppressFirstHeader bool) error {
+	for i := 0; i < len(targets); i += batchSize {
+		j := i + batchSize
+		if j > len(targets) {
+			j = len(targets)
+		}
+		batch := targets[i:j]
+		args := []string{verb}
+		args = append(args, batch...)
+		batchFlags := finalFlags
+		if verb == "get" && (i > 0 || suppressFirstHeader) {
+			batchFlags = append(batchFlags, "--no-headers=true")
+		}
+		args = append(args, batchFlags...)
+		args = append(args, extra...)
+		if err := runner.RunKubectl(args); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Run a single or batched kubectl get across namespaces using ns/name targets with -A,
+// so kubectl includes the NAMESPACE column.
+func runGetAcrossNamespaces(runner Runner, opts CLIOptions, matched []matchedRef) error {
+	// Use filtered List approach to let kubectl render a single table with NAMESPACE
+	finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+	finalFlags = ensureAllNamespacesFlag(finalFlags)
+	return runGetAllNamespacesSingleTable(runner, opts, matched, finalFlags)
 }
 
 // runGetAllNamespacesSingleTable combines results into a single kubectl table by
@@ -324,4 +366,52 @@ func runGetAllNamespacesSingleTable(runner Runner, opts CLIOptions, matched []ma
 	callArgs = append(callArgs, finalFlags...)
 	callArgs = append(callArgs, opts.ExtraFinal...)
 	return runner.RunKubectl(callArgs)
+}
+
+func colorize(s string, red bool, noColor bool) string {
+	if noColor {
+		return s
+	}
+	if red {
+		return "\x1b[31;1m" + s + "\x1b[0m"
+	}
+	return s
+}
+
+func previewAsList(opts CLIOptions, matched []matchedRef) {
+	// Columnar list: single-ns => NAME; all-ns => NAMESPACE\tRESOURCE/NAME (bright red)
+	fmt.Printf("About to delete %d %s:\n", len(matched), opts.Resource)
+	for _, m := range matched {
+		ns := m.ns
+		if ns == "" {
+			ns = opts.Namespace
+		}
+		if ns == "" {
+			ns = "(cluster-scope)"
+		}
+		var entry string
+		if opts.AllNamespaces {
+			entry = fmt.Sprintf("%s\t%s/%s", ns, opts.Resource, m.name)
+		} else {
+			entry = m.name
+		}
+		fmt.Println(colorize(entry, true, opts.NoColor))
+	}
+}
+
+func previewAsTable(runner Runner, opts CLIOptions, matched []matchedRef) error {
+	// Align with kubectl: when -A, use ns/name targets so NAMESPACE column is shown
+	if opts.AllNamespaces {
+		return runGetAcrossNamespaces(runner, opts, matched)
+	}
+	// Single-namespace table preview: get <resource> <names...> -n <ns>
+	finalFlags := opts.FinalFlags
+	if opts.Namespace != "" {
+		finalFlags = append([]string{"-n", opts.Namespace}, stripNamespaceFlag(finalFlags)...)
+	}
+	var names []string
+	for _, m := range matched {
+		names = append(names, m.name)
+	}
+	return runBatched(runner, "get", opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
 }

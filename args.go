@@ -32,6 +32,8 @@ type CLIOptions struct {
 	BatchSize  int
 	Yes        bool
 	DryRun     bool
+	NoColor    bool
+	Preview    string // "list" (default) or "table"
 
 	// Raw flags for discovery `kubectl get ... -o json`
 	DiscoveryFlags []string
@@ -140,6 +142,16 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			continue
 		case "--ignore-case":
 			opts.IgnoreCase = true
+			continue
+		case "--no-color":
+			opts.NoColor = true
+			continue
+		case "--preview":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--preview requires a value (list|table)")
+			}
+			opts.Preview = flags[i+1]
+			i++
 			continue
 		case "--yes", "-y":
 			opts.Yes = true

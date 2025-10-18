@@ -66,9 +66,26 @@ kubectl wild get pods -p foo -n default        # short for --prefix
 ```
 
 - Flags after the pattern are passed through to `kubectl` (e.g., `-n`, `-A`, `-l`).
-- For `get`, output is rendered as a single kubectl table even across namespaces.
+- For `get`, output is rendered as a single kubectl table; with `-A` the NAMESPACE column is included, like kubectl.
 - For `describe`, the plugin runs `kubectl describe` on the matched set.
-- For `delete`, the plugin shows matches and always asks for confirmation (`y/N`).
+- For `delete`, the plugin previews matches and always asks for confirmation (`y/N`). The prompt is bright red by default to prevent accidents.
+
+Delete preview and colors
+-------------------------
+
+- Default preview is a red column list of targets.
+- With `-A`, default preview switches to a kubectl-style table (or pass `--preview table` explicitly).
+- Disable color with `--no-color`.
+
+Examples:
+
+```bash
+# Column preview (red)
+kubectl wild delete pods -p te -n default
+
+# Table preview with NAMESPACE column
+kubectl wild delete pods -p te -A --preview table
+```
 
 Examples
 --------
