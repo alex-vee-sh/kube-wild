@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.0.3
+- Namespace filters: `--ns`, `--ns-prefix`, `--ns-regex`
+- Safety: `--confirm-threshold`, `--server-dry-run`
+- Previews: default table on -A; red list shows NAMESPACE\tRESOURCE/NAME
+- Docs update
+
 ## v0.0.2
 - Prefix matching flag `--prefix` and `-p`
 - Delete preview improvements:

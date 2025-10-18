@@ -16,6 +16,10 @@ type Matcher struct {
 	Includes   []string
 	Excludes   []string
 	IgnoreCase bool
+	// Namespace filters
+	NsExact  []string
+	NsPrefix []string
+	NsRegex  []string
 }
 
 func (m Matcher) Matches(name string) bool {
@@ -45,6 +49,30 @@ func (m Matcher) Matches(name string) bool {
 		}
 	}
 	return true
+}
+
+func (m Matcher) NamespaceAllowed(ns string) bool {
+	// if no filters, allow all
+	if len(m.NsExact) == 0 && len(m.NsPrefix) == 0 && len(m.NsRegex) == 0 {
+		return true
+	}
+	for _, e := range m.NsExact {
+		if ns == e {
+			return true
+		}
+	}
+	for _, p := range m.NsPrefix {
+		if strings.HasPrefix(ns, p) {
+			return true
+		}
+	}
+	for _, re := range m.NsRegex {
+		r := regexp.MustCompile(re)
+		if r.MatchString(ns) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchSingle(mode MatchMode, ignoreCase bool, target string, pattern string) bool {

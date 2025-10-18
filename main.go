@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -54,11 +55,12 @@ func runCommand(runner Runner, opts CLIOptions) error {
 		return err
 	}
 	// Build list of target names (either name or ns/name when -A)
-	matcher := Matcher{Mode: opts.Mode, Includes: opts.Include, Excludes: opts.Exclude, IgnoreCase: opts.IgnoreCase}
+	matcher := Matcher{Mode: opts.Mode, Includes: opts.Include, Excludes: opts.Exclude, IgnoreCase: opts.IgnoreCase,
+		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: opts.NsRegex}
 	var matched []matchedRef
 	for _, r := range refs {
 		nsname := r.Namespace + "/" + r.Name
-		if matcher.Matches(r.Name) || matcher.Matches(nsname) {
+		if (matcher.Matches(r.Name) || matcher.Matches(nsname)) && matcher.NamespaceAllowed(r.Namespace) {
 			matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name})
 		}
 	}
@@ -107,6 +109,15 @@ func runCommand(runner Runner, opts CLIOptions) error {
 			}
 			fmt.Printf("[dry-run] Would delete %d %s: %s\n", len(matched), opts.Resource, strings.Join(preview, ", "))
 			return nil
+		}
+		// Safety: confirm threshold
+		if opts.ConfirmThreshold > 0 && len(matched) > opts.ConfirmThreshold && !opts.Yes {
+			fmt.Printf("Matched %d items which exceeds confirm threshold %d. Aborting. Use -y to force.\n", len(matched), opts.ConfirmThreshold)
+			return nil
+		}
+		// Server-side dry-run
+		if opts.ServerDryRun {
+			opts.FinalFlags = append(opts.FinalFlags, "--dry-run=server")
 		}
 		return runVerbPerScope(runner, "delete", opts, matched)
 	default:
@@ -313,7 +324,7 @@ func runGetAllNamespacesSingleTable(runner Runner, opts CLIOptions, matched []ma
 	out, errOut, err := runner.CaptureKubectl(args)
 	if err != nil {
 		if len(errOut) > 0 {
-			return fmt.Errorf(strings.TrimSpace(string(errOut)))
+			return errors.New(strings.TrimSpace(string(errOut)))
 		}
 		return err
 	}

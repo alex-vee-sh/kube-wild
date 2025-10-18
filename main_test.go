@@ -238,4 +238,44 @@ func TestAllNamespaces_TargetsNsName(t *testing.T) {
 	}
 }
 
+func TestNamespaceFilters_Applied(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"a\",\"namespace\":\"ns1\"}}," +
+		"{\"metadata\":{\"name\":\"b\",\"namespace\":\"prod-ns\"}}]}"
+	fr.outputs["get pods -o json -A"] = json
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true, NsPrefix: []string{"prod-"}}
+	opts.DiscoveryFlags = []string{"-A"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// ensure only prod-ns/b is acted on
+	onlyProd := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := strings.Join(c[2:], " ")
+			if strings.Contains(joined, "b") && !strings.Contains(joined, " a ") {
+				onlyProd = true
+			}
+		}
+	}
+	if !onlyProd {
+		t.Fatalf("namespace filter not applied; calls=%v", fr.calls)
+	}
+}
+
+func TestConfirmThreshold_Blocks(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	fr.outputs["get pods -o json"] = discoveryJSON("a", "b", "c")
+	opts := CLIOptions{Verb: VerbDelete, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob, ConfirmThreshold: 2}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range fr.calls {
+		if len(c) > 0 && c[0] == "delete" {
+			t.Fatal("delete should be blocked by threshold")
+		}
+	}
+}
+
 // logs intentionally unsupported

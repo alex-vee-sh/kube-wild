@@ -34,6 +34,13 @@ type CLIOptions struct {
 	DryRun     bool
 	NoColor    bool
 	Preview    string // "list" (default) or "table"
+	// Namespace filters (applied after discovery)
+	NsExact  []string
+	NsPrefix []string
+	NsRegex  []string
+	// Safety
+	ConfirmThreshold int
+	ServerDryRun     bool
 
 	// Raw flags for discovery `kubectl get ... -o json`
 	DiscoveryFlags []string
@@ -183,6 +190,41 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			}
 			opts.BatchSize = n
 			i++
+			continue
+		case "--ns":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--ns requires a value")
+			}
+			opts.NsExact = append(opts.NsExact, flags[i+1])
+			i++
+			continue
+		case "--ns-prefix":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--ns-prefix requires a value")
+			}
+			opts.NsPrefix = append(opts.NsPrefix, flags[i+1])
+			i++
+			continue
+		case "--ns-regex":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--ns-regex requires a value")
+			}
+			opts.NsRegex = append(opts.NsRegex, flags[i+1])
+			i++
+			continue
+		case "--confirm-threshold":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--confirm-threshold requires a value")
+			}
+			n, err := strconv.Atoi(flags[i+1])
+			if err != nil || n < 0 {
+				return opts, fmt.Errorf("--confirm-threshold must be a non-negative integer")
+			}
+			opts.ConfirmThreshold = n
+			i++
+			continue
+		case "--server-dry-run":
+			opts.ServerDryRun = true
 			continue
 		}
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,7 +51,7 @@ func discoverNames(runner Runner, resource string, discoveryFlags []string, allN
 	out, errOut, err := runner.CaptureKubectl(args)
 	if err != nil {
 		if len(errOut) > 0 {
-			return nil, fmt.Errorf(strings.TrimSpace(string(errOut)))
+			return nil, errors.New(strings.TrimSpace(string(errOut)))
 		}
 		return nil, err
 	}

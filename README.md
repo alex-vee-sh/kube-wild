@@ -87,6 +87,17 @@ kubectl wild delete pods -p te -n default
 kubectl wild delete pods -p te -A --preview table
 ```
 
+Namespace filters and safety
+----------------------------
+
+- Filter namespaces (applied after discovery):
+  - `--ns <ns>`: include only exact namespaces (repeatable)
+  - `--ns-prefix <prefix>`: include namespaces by prefix (repeatable)
+  - `--ns-regex <re>`: include namespaces by regex (repeatable)
+- Safety:
+  - `--server-dry-run`: perform delete with `--dry-run=server`
+  - `--confirm-threshold N`: block delete if matches > N unless `-y`
+
 Examples
 --------
 
