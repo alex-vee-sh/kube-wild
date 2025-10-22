@@ -1,0 +1,62 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: wild
+spec:
+  # krew-release-bot will substitute the tag name here
+  version: {{ .TagName }}
+  homepage: https://github.com/alex-vee-sh/kube-wild
+  shortDescription: "Use wildcard patterns for kubectl get/describe/delete"
+  description: |
+    kubectl-wild adds simple wildcard matching and safety features for resource names,
+    then delegates to kubectl for output and actions.
+  platforms:
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: amd64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_darwin_amd64.tar.gz
+    sha256: "{{ .Sha256SUM }}"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: arm64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_darwin_arm64.tar.gz
+    sha256: "{{ .Sha256SUM }}"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
+  - selector:
+      matchLabels:
+        os: linux
+        arch: amd64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_linux_amd64.tar.gz
+    sha256: "{{ .Sha256SUM }}"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm64
+    uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_linux_arm64.tar.gz
+    sha256: "{{ .Sha256SUM }}"
+    bin: kubectl-wild
+    files:
+    - from: "kubectl-wild"
+      to: "kubectl-wild"
+    - from: "LICENSE"
+      to: "LICENSE"
+

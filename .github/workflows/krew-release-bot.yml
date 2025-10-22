@@ -1,0 +1,11 @@
+name: krew-release-bot
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  krew:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: rajatjindal/krew-release-bot@v0.0.46
