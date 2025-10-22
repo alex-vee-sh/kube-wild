@@ -1,8 +1,13 @@
 name: krew-release-bot
 
 on:
+  # If a release is created manually, still run
   release:
-    types: [created]
+    types: [published]
+  # When our "release" workflow (that uploads assets) completes, run the bot.
+  workflow_run:
+    workflows: ["release"]
+    types: ["completed"]
 
 jobs:
   krew:
