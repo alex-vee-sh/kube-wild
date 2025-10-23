@@ -15,14 +15,9 @@ jobs:
   krew:
     runs-on: ubuntu-latest
     steps:
-      - name: Set GITHUB_REF for krew-release-bot
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "GITHUB_REF=refs/tags/${{ github.event.release.tag_name }}" >> $GITHUB_ENV
-          else
-            echo "GITHUB_REF=refs/tags/${{ inputs.tag }}" >> $GITHUB_ENV
-          fi
       - uses: rajatjindal/krew-release-bot@v0.0.46
         env:
-          # Recommended: create a repo secret with a PAT that has repo scope
-          GITHUB_TOKEN: ${{ secrets.KREW_RELEASE_BOT_GITHUB_TOKEN }}
+          # Prefer PAT if provided; fallback to default token
+          GITHUB_TOKEN: ${{ secrets.KREW_RELEASE_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          # The bot requires GITHUB_REF to be refs/tags/<tag>
+          GITHUB_REF: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || format('refs/tags/{0}', inputs.tag) }}
