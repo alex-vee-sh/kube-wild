@@ -8,9 +8,14 @@ on:
   workflow_run:
     workflows: ["release"]
     types: ["completed"]
+  # Allow manual runs from the UI
+  workflow_dispatch: {}
 
 jobs:
   krew:
     runs-on: ubuntu-latest
     steps:
       - uses: rajatjindal/krew-release-bot@v0.0.46
+        env:
+          # Recommended: create a repo secret with a PAT that has repo scope
+          GITHUB_TOKEN: ${{ secrets.KREW_RELEASE_BOT_GITHUB_TOKEN }}
