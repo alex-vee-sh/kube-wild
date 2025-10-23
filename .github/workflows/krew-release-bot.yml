@@ -4,17 +4,24 @@ on:
   # If a release is created manually, still run
   release:
     types: [published]
-  # When our "release" workflow (that uploads assets) completes, run the bot.
-  workflow_run:
-    workflows: ["release"]
-    types: ["completed"]
   # Allow manual runs from the UI
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish to krew-index (e.g., v0.0.5)"
+        required: true
 
 jobs:
   krew:
     runs-on: ubuntu-latest
     steps:
+      - name: Set GITHUB_REF for krew-release-bot
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "GITHUB_REF=refs/tags/${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+          else
+            echo "GITHUB_REF=refs/tags/${{ inputs.tag }}" >> $GITHUB_ENV
+          fi
       - uses: rajatjindal/krew-release-bot@v0.0.46
         env:
           # Recommended: create a repo secret with a PAT that has repo scope
