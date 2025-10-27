@@ -75,6 +75,11 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	case VerbDescribe:
 		return runVerbPerScope(runner, "describe", opts, matched)
 	case VerbDelete:
+		// Safety: confirm threshold BEFORE any interactive prompt
+		if opts.ConfirmThreshold > 0 && len(matched) > opts.ConfirmThreshold && !opts.Yes {
+			fmt.Printf("Matched %d items which exceeds confirm threshold %d. Aborting. Use -y to force.\n", len(matched), opts.ConfirmThreshold)
+			return nil
+		}
 		if !opts.Yes && !opts.DryRun {
 			previewMode := opts.Preview
 			if previewMode == "" && opts.AllNamespaces {
@@ -108,11 +113,6 @@ func runCommand(runner Runner, opts CLIOptions) error {
 				}
 			}
 			fmt.Printf("[dry-run] Would delete %d %s: %s\n", len(matched), opts.Resource, strings.Join(preview, ", "))
-			return nil
-		}
-		// Safety: confirm threshold
-		if opts.ConfirmThreshold > 0 && len(matched) > opts.ConfirmThreshold && !opts.Yes {
-			fmt.Printf("Matched %d items which exceeds confirm threshold %d. Aborting. Use -y to force.\n", len(matched), opts.ConfirmThreshold)
 			return nil
 		}
 		// Server-side dry-run
