@@ -156,7 +156,7 @@ func TestParseArgs_PluginFlags(t *testing.T) {
 func TestDiscover_ErrorSurface(t *testing.T) {
 	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
 	fr.errs["get pods -o json"] = errors.New("boom")
-	_, err := discoverNames(fr, "pods", nil, false)
+	_, err := discoverNames(fr, "pods", nil)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatal("expected surfaced error")
 	}

@@ -50,7 +50,7 @@ func main() {
 }
 
 func runCommand(runner Runner, opts CLIOptions) error {
-	refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags, opts.AllNamespaces)
+	refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
 	if err != nil {
 		return err
 	}
@@ -275,28 +275,6 @@ func ensureAllNamespacesFlag(flags []string) []string {
 		}
 	}
 	return append(flags, "-A")
-}
-
-func runBatchedNsName(runner Runner, verb string, targets []string, finalFlags []string, extra []string, batchSize int, suppressFirstHeader bool) error {
-	for i := 0; i < len(targets); i += batchSize {
-		j := i + batchSize
-		if j > len(targets) {
-			j = len(targets)
-		}
-		batch := targets[i:j]
-		args := []string{verb}
-		args = append(args, batch...)
-		batchFlags := finalFlags
-		if verb == "get" && (i > 0 || suppressFirstHeader) {
-			batchFlags = append(batchFlags, "--no-headers=true")
-		}
-		args = append(args, batchFlags...)
-		args = append(args, extra...)
-		if err := runner.RunKubectl(args); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // Run a single or batched kubectl get across namespaces using ns/name targets with -A,

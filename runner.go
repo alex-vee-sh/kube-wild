@@ -1,13 +1,13 @@
 package main
 
 import (
-    "bytes"
-    "encoding/json"
-    "errors"
-    "fmt"
-    "os"
-    "os/exec"
-    "strings"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
 )
 
 type Runner interface {
@@ -44,17 +44,17 @@ type K8sListPartial struct {
 	} `json:"items"`
 }
 
-func discoverNames(runner Runner, resource string, discoveryFlags []string, allNamespaces bool) ([]NameRef, error) {
+func discoverNames(runner Runner, resource string, discoveryFlags []string) ([]NameRef, error) {
 	args := []string{"get", resource, "-o", "json"}
 	// filter out user-provided output flags
 	args = append(args, filterOutputFlags(discoveryFlags)...)
 	out, errOut, err := runner.CaptureKubectl(args)
-    if err != nil {
-        if len(errOut) > 0 {
-            return nil, errors.New(strings.TrimSpace(string(errOut)))
-        }
-        return nil, err
-    }
+	if err != nil {
+		if len(errOut) > 0 {
+			return nil, errors.New(strings.TrimSpace(string(errOut)))
+		}
+		return nil, err
+	}
 
 	var list K8sListPartial
 	if err := json.Unmarshal(out, &list); err != nil {
