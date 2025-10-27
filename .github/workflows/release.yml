@@ -33,6 +33,19 @@ jobs:
           for f in *.tar.gz; do
             sha256sum "$f" >> SHA256SUMS.txt
           done
+          awk '{print $1, $2}' SHA256SUMS.txt
+      - name: Inject SHAs into .krew.yaml
+        run: |
+          LNX_AMD=$(sha256sum dist/kubectl-wild_linux_amd64.tar.gz | awk '{print $1}')
+          LNX_ARM=$(sha256sum dist/kubectl-wild_linux_arm64.tar.gz | awk '{print $1}')
+          DAR_AMD=$(sha256sum dist/kubectl-wild_darwin_amd64.tar.gz | awk '{print $1}')
+          DAR_ARM=$(sha256sum dist/kubectl-wild_darwin_arm64.tar.gz | awk '{print $1}')
+          sed -i.bak \
+            -e "s/__SHA_DARWIN_AMD64__/${DAR_AMD}/" \
+            -e "s/__SHA_DARWIN_ARM64__/${DAR_ARM}/" \
+            -e "s/__SHA_LINUX_AMD64__/${LNX_AMD}/" \
+            -e "s/__SHA_LINUX_ARM64__/${LNX_ARM}/" \
+            .krew.yaml
       - name: Create release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -65,3 +78,4 @@ jobs:
           krew_template_file: .krew.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.KREW_RELEASE_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REF: ${{ github.ref }}

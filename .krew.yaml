@@ -16,7 +16,7 @@ spec:
         os: darwin
         arch: amd64
     uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_darwin_amd64.tar.gz
-    sha256: ""
+    sha256: __SHA_DARWIN_AMD64__
     bin: kubectl-wild
     files:
     - from: "kubectl-wild"
@@ -29,7 +29,7 @@ spec:
         arch: arm64
     uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_darwin_arm64.tar.gz
     bin: kubectl-wild
-    sha256: ""
+    sha256: __SHA_DARWIN_ARM64__
     files:
     - from: "kubectl-wild"
       to: "kubectl-wild"
@@ -41,7 +41,7 @@ spec:
         arch: amd64
     uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_linux_amd64.tar.gz
     bin: kubectl-wild
-    sha256: ""
+    sha256: __SHA_LINUX_AMD64__
     files:
     - from: "kubectl-wild"
       to: "kubectl-wild"
@@ -52,7 +52,7 @@ spec:
         os: linux
         arch: arm64
     uri: https://github.com/alex-vee-sh/kube-wild/releases/download/{{ .TagName }}/kubectl-wild_linux_arm64.tar.gz
-    sha256: ""
+    sha256: __SHA_LINUX_ARM64__
     bin: kubectl-wild
     files:
     - from: "kubectl-wild"
