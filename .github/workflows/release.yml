@@ -44,6 +44,21 @@ jobs:
             dist/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Derive tag name
+        run: echo "TAG_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
+      - name: Wait for release assets to be available
+        run: |
+          set -e
+          assets=(kubectl-wild_darwin_amd64.tar.gz kubectl-wild_darwin_arm64.tar.gz kubectl-wild_linux_amd64.tar.gz kubectl-wild_linux_arm64.tar.gz)
+          for i in {1..30}; do
+            ok=1
+            for f in "${assets[@]}"; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" -I "https://github.com/alex-vee-sh/kube-wild/releases/download/${TAG_NAME}/${f}")
+              if [ "$code" != "200" ]; then ok=0; fi
+            done
+            if [ "$ok" = "1" ]; then echo "All assets available"; break; fi
+            echo "Assets not ready yet. Retrying..."; sleep 5
+          done
       - name: Update new version in krew-index
         uses: rajatjindal/krew-release-bot@v0.0.46
         with:
