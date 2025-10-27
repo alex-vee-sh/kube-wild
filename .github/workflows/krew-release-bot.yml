@@ -22,7 +22,7 @@ jobs:
       - uses: rajatjindal/krew-release-bot@v0.0.46
         with:
           workdir: .
-          krew-template-file: .krew.yaml
+          krew_template_file: .krew.yaml
         env:
           # Prefer PAT if provided; fallback to default token
           GITHUB_TOKEN: ${{ secrets.KREW_RELEASE_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
