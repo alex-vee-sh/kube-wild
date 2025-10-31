@@ -83,6 +83,15 @@ func TestParseArgs_Defaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeResource_Shortcuts(t *testing.T) {
+	if got := normalizeResource("po"); got != "pods" {
+		t.Fatalf("po -> %s", got)
+	}
+	if got := normalizeResource("svc"); got != "services" {
+		t.Fatalf("svc -> %s", got)
+	}
+}
+
 func TestPrefixRemovesDefaultInclude(t *testing.T) {
 	opts, err := parseArgs([]string{"get", "pods", "-p", "ngin"})
 	if err != nil {

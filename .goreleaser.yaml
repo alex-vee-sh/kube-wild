@@ -1,0 +1,32 @@
+version: 2
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: kubectl-wild
+    main: ./
+    binary: kubectl-wild
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - builds: [kubectl-wild]
+    # Match krew-friendly file names (no tag in filename)
+    name_template: kubectl-wild_{{ .Os }}_{{ .Arch }}
+    wrap_in_directory: false
+    format: tar.gz
+    files:
+      - LICENSE
+
+checksum:
+  name_template: SHA256SUMS.txt
+
+release:
+  # Let goreleaser create the GitHub Release if invoked with GITHUB_TOKEN
+  draft: false
+  prerelease: false
+

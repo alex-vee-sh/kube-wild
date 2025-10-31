@@ -56,7 +56,7 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	}
 	// Build list of target names (either name or ns/name when -A)
 	matcher := Matcher{Mode: opts.Mode, Includes: opts.Include, Excludes: opts.Exclude, IgnoreCase: opts.IgnoreCase,
-		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: opts.NsRegex}
+		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: opts.NsRegex, FuzzyMaxDistance: opts.FuzzyMaxDistance}
 	var matched []matchedRef
 	for _, r := range refs {
 		nsname := r.Namespace + "/" + r.Name

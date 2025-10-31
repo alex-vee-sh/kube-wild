@@ -24,11 +24,14 @@ jobs:
         run: |
           set -e
           mkdir -p dist
-          for os in linux darwin; do
+          for os in linux darwin windows; do
             for arch in amd64 arm64; do
               echo "Building $os/$arch"
-              CGO_ENABLED=0 GOOS=$os GOARCH=$arch GO111MODULE=on go build -o kubectl-wild .
-              tar -czf dist/kubectl-wild_${os}_${arch}.tar.gz kubectl-wild LICENSE
+              BIN=kubectl-wild
+              EXT=""
+              if [ "$os" = "windows" ]; then EXT=".exe"; fi
+              CGO_ENABLED=0 GOOS=$os GOARCH=$arch GO111MODULE=on go build -o ${BIN}${EXT} .
+              tar -czf dist/kubectl-wild_${os}_${arch}.tar.gz ${BIN}${EXT} LICENSE
               rm -f kubectl-wild
             done
           done
@@ -45,10 +48,14 @@ jobs:
           LNX_ARM=$(sha256sum dist/kubectl-wild_linux_arm64.tar.gz | awk '{print $1}')
           DAR_AMD=$(sha256sum dist/kubectl-wild_darwin_amd64.tar.gz | awk '{print $1}')
           DAR_ARM=$(sha256sum dist/kubectl-wild_darwin_arm64.tar.gz | awk '{print $1}')
+          WIN_AMD=$(sha256sum dist/kubectl-wild_windows_amd64.tar.gz | awk '{print $1}')
+          WIN_ARM=$(sha256sum dist/kubectl-wild_windows_arm64.tar.gz | awk '{print $1}')
           echo "SHA_LINUX_AMD64=${LNX_AMD}" >> $GITHUB_ENV
           echo "SHA_LINUX_ARM64=${LNX_ARM}" >> $GITHUB_ENV
           echo "SHA_DARWIN_AMD64=${DAR_AMD}" >> $GITHUB_ENV
           echo "SHA_DARWIN_ARM64=${DAR_ARM}" >> $GITHUB_ENV
+          echo "SHA_WINDOWS_AMD64=${WIN_AMD}" >> $GITHUB_ENV
+          echo "SHA_WINDOWS_ARM64=${WIN_ARM}" >> $GITHUB_ENV
       - name: Create release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -57,6 +64,8 @@ jobs:
             dist/kubectl-wild_linux_arm64.tar.gz
             dist/kubectl-wild_darwin_amd64.tar.gz
             dist/kubectl-wild_darwin_arm64.tar.gz
+            dist/kubectl-wild_windows_amd64.tar.gz
+            dist/kubectl-wild_windows_arm64.tar.gz
             dist/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,7 +74,7 @@ jobs:
       - name: Wait for release assets to be available
         run: |
           set -e
-          assets=(kubectl-wild_darwin_amd64.tar.gz kubectl-wild_darwin_arm64.tar.gz kubectl-wild_linux_amd64.tar.gz kubectl-wild_linux_arm64.tar.gz)
+          assets=(kubectl-wild_darwin_amd64.tar.gz kubectl-wild_darwin_arm64.tar.gz kubectl-wild_linux_amd64.tar.gz kubectl-wild_linux_arm64.tar.gz kubectl-wild_windows_amd64.tar.gz kubectl-wild_windows_arm64.tar.gz)
           for i in {1..30}; do
             ok=1
             for f in "${assets[@]}"; do
@@ -136,6 +145,30 @@ jobs:
               files:
               - from: "kubectl-wild"
                 to: "kubectl-wild"
+              - from: "LICENSE"
+                to: "LICENSE"
+            - selector:
+                matchLabels:
+                  os: windows
+                  arch: amd64
+              uri: https://github.com/alex-vee-sh/kube-wild/releases/download/${TAG_NAME}/kubectl-wild_windows_amd64.tar.gz
+              sha256: "${SHA_WINDOWS_AMD64}"
+              bin: kubectl-wild.exe
+              files:
+              - from: "kubectl-wild.exe"
+                to: "kubectl-wild.exe"
+              - from: "LICENSE"
+                to: "LICENSE"
+            - selector:
+                matchLabels:
+                  os: windows
+                  arch: arm64
+              uri: https://github.com/alex-vee-sh/kube-wild/releases/download/${TAG_NAME}/kubectl-wild_windows_arm64.tar.gz
+              sha256: "${SHA_WINDOWS_ARM64}"
+              bin: kubectl-wild.exe
+              files:
+              - from: "kubectl-wild.exe"
+                to: "kubectl-wild.exe"
               - from: "LICENSE"
                 to: "LICENSE"
           EOF

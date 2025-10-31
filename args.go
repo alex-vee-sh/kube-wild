@@ -20,6 +20,7 @@ const (
 	MatchGlob MatchMode = iota
 	MatchRegex
 	MatchContains
+	MatchFuzzy
 )
 
 type CLIOptions struct {
@@ -41,6 +42,8 @@ type CLIOptions struct {
 	// Safety
 	ConfirmThreshold int
 	ServerDryRun     bool
+	Fuzzy            bool
+	FuzzyMaxDistance int
 
 	// Raw flags for discovery `kubectl get ... -o json`
 	DiscoveryFlags []string
@@ -92,7 +95,7 @@ func parseArgs(argv []string) (CLIOptions, error) {
 	includeWasDefault := false
 	// Default resource to pods if absent or next token is a flag
 	if len(head) > 1 && !strings.HasPrefix(head[1], "-") {
-		opts.Resource = head[1]
+		opts.Resource = normalizeResource(head[1])
 	} else {
 		opts.Resource = "pods"
 	}
@@ -132,6 +135,26 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			continue
 		case "--contains":
 			opts.Mode = MatchContains
+			continue
+		case "--fuzzy":
+			opts.Mode = MatchFuzzy
+			opts.Fuzzy = true
+			if opts.FuzzyMaxDistance == 0 {
+				opts.FuzzyMaxDistance = 1
+			}
+			continue
+		case "--fuzzy-distance":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--fuzzy-distance requires a value")
+			}
+			n, err := strconv.Atoi(flags[i+1])
+			if err != nil || n < 1 {
+				return opts, fmt.Errorf("--fuzzy-distance must be >= 1")
+			}
+			opts.FuzzyMaxDistance = n
+			opts.Mode = MatchFuzzy
+			opts.Fuzzy = true
+			i++
 			continue
 		case "--prefix":
 			if i+1 >= len(flags) {
@@ -263,6 +286,10 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			if len(opts.Include) == 0 {
 				opts.Include = []string{""}
 			}
+		case MatchFuzzy:
+			if len(opts.Include) == 0 {
+				opts.Include = []string{""}
+			}
 		}
 	}
 	// If we had inserted a default include and user also provided an explicit include (e.g., -p/--prefix/--match), drop the default
@@ -281,4 +308,29 @@ func indexOf(ss []string, s string) int {
 		}
 	}
 	return -1
+}
+
+func normalizeResource(r string) string {
+	switch strings.ToLower(r) {
+	case "po", "pod", "pods":
+		return "pods"
+	case "svc", "service", "services":
+		return "services"
+	case "deploy", "deployment", "deployments":
+		return "deployments"
+	case "ds", "daemonset", "daemonsets":
+		return "daemonsets"
+	case "sts", "statefulset", "statefulsets":
+		return "statefulsets"
+	case "cm", "configmap", "configmaps":
+		return "configmaps"
+	case "sa", "serviceaccount", "serviceaccounts":
+		return "serviceaccounts"
+	case "ing", "ingress", "ingresses":
+		return "ingresses"
+	case "ns", "namespace", "namespaces":
+		return "namespaces"
+	default:
+		return r
+	}
 }

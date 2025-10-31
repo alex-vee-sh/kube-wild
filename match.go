@@ -20,6 +20,8 @@ type Matcher struct {
 	NsExact  []string
 	NsPrefix []string
 	NsRegex  []string
+	// Fuzzy
+	FuzzyMaxDistance int
 }
 
 func (m Matcher) Matches(name string) bool {
@@ -93,8 +95,61 @@ func matchSingle(mode MatchMode, ignoreCase bool, target string, pattern string)
 		return re.MatchString(target)
 	case MatchContains:
 		return strings.Contains(target, p)
+	case MatchFuzzy:
+		if ignoreCase {
+			return levenshtein(strings.ToLower(target), strings.ToLower(pattern)) <= 1
+		}
+		return levenshtein(target, pattern) <= 1
 	default:
 		ok, _ := path.Match(p, target)
 		return ok
 	}
+}
+
+func levenshtein(a, b string) int {
+	if a == b {
+		return 0
+	}
+	la, lb := len(a), len(b)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	// allocate 2 rows
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		ca := a[i-1]
+		for j := 1; j <= lb; j++ {
+			cost := 0
+			if ca != b[j-1] {
+				cost = 1
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			curr[j] = min3(del, ins, sub)
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
+func min3(a, b, c int) int {
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
+	return c
 }
