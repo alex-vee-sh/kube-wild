@@ -2,9 +2,11 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeRunner struct {
@@ -90,6 +92,67 @@ func TestNormalizeResource_Shortcuts(t *testing.T) {
 	if got := normalizeResource("svc"); got != "services" {
 		t.Fatalf("svc -> %s", got)
 	}
+}
+
+func TestParseArgs_AgeStatusOutputFlags(t *testing.T) {
+    opts, err := parseArgs([]string{"get", "pods", "*", "--older-than", "15m", "--younger-than", "2h", "--pod-status", "CrashLoopBackOff", "--output", "json"})
+    if err != nil { t.Fatal(err) }
+    if opts.OlderThan == 0 || opts.YoungerThan == 0 || !opts.OutputJSON || len(opts.PodStatuses) != 1 {
+        t.Fatalf("parse flags failed: %+v", opts)
+    }
+}
+
+func TestFuzzyMatching_SelectsCloseNames(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    now := time.Now().UTC().Format(time.RFC3339)
+    json := fmt.Sprintf("{\"items\":[{\"metadata\":{\"name\":\"nginx\",\"namespace\":\"default\",\"creationTimestamp\":\"%s\"}},{\"metadata\":{\"name\":\"api\",\"namespace\":\"default\",\"creationTimestamp\":\"%s\"}}]}", now, now)
+    fr.outputs["get pods -o json"] = json
+    opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"ngin"}, Mode: MatchFuzzy}
+    if err := runCommand(fr, opts); err != nil { t.Fatal(err) }
+    onlyNginx := false
+    for _, c := range fr.calls {
+        if len(c) >= 2 && c[0] == "get" && c[1] == "pods" {
+            joined := " " + strings.Join(c[2:], " ") + " "
+            if strings.Contains(joined, " nginx ") && !strings.Contains(joined, " api ") { onlyNginx = true }
+        }
+    }
+    if !onlyNginx { t.Fatalf("expected fuzzy to select nginx only; calls=%v", fr.calls) }
+}
+
+func TestAgeFilters_OlderThan(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    old := time.Now().Add(-2*time.Hour).UTC().Format(time.RFC3339)
+    young := time.Now().Add(-10*time.Minute).UTC().Format(time.RFC3339)
+    json := fmt.Sprintf("{\"items\":[{\"metadata\":{\"name\":\"old\",\"namespace\":\"ns\",\"creationTimestamp\":\"%s\"}},{\"metadata\":{\"name\":\"young\",\"namespace\":\"ns\",\"creationTimestamp\":\"%s\"}}]}", old, young)
+    fr.outputs["get pods -o json"] = json
+    opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob, OlderThan: time.Hour}
+    if err := runCommand(fr, opts); err != nil { t.Fatal(err) }
+    onlyOld := false
+    for _, c := range fr.calls {
+        if len(c) >= 2 && c[0] == "get" && c[1] == "pods" {
+            joined := " " + strings.Join(c[2:], " ") + " "
+            if strings.Contains(joined, " old ") && !strings.Contains(joined, " young ") { onlyOld = true }
+        }
+    }
+    if !onlyOld { t.Fatalf("age filter failed; calls=%v", fr.calls) }
+}
+
+func TestPodStatusFilter_CrashLoopOnly(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    now := time.Now().UTC().Format(time.RFC3339)
+    // bad pod has CrashLoopBackOff waiting reason; ok has none
+    json := fmt.Sprintf("{\"items\":[{\"metadata\":{\"name\":\"bad\",\"namespace\":\"ns\",\"creationTimestamp\":\"%s\"},\"status\":{\"containerStatuses\":[{\"state\":{\"waiting\":{\"reason\":\"CrashLoopBackOff\"}}}]}},{\"metadata\":{\"name\":\"ok\",\"namespace\":\"ns\",\"creationTimestamp\":\"%s\"}}]}", now, now)
+    fr.outputs["get pods -o json"] = json
+    opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob, PodStatuses: []string{"CrashLoopBackOff"}}
+    if err := runCommand(fr, opts); err != nil { t.Fatal(err) }
+    onlyBad := false
+    for _, c := range fr.calls {
+        if len(c) >= 2 && c[0] == "get" && c[1] == "pods" {
+            joined := " " + strings.Join(c[2:], " ") + " "
+            if strings.Contains(joined, " bad ") && !strings.Contains(joined, " ok ") { onlyBad = true }
+        }
+    }
+    if !onlyBad { t.Fatalf("status filter failed; calls=%v", fr.calls) }
 }
 
 func TestPrefixRemovesDefaultInclude(t *testing.T) {

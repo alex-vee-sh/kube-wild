@@ -4,11 +4,14 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type NameRef struct {
-	Namespace string
-	Name      string
+	Namespace  string
+	Name       string
+	CreatedAt  time.Time
+	PodReasons []string
 }
 
 type Matcher struct {
@@ -31,10 +34,10 @@ func (m Matcher) Matches(name string) bool {
 	}
 
 	// includes
-	if len(m.Includes) > 0 {
+    if len(m.Includes) > 0 {
 		matched := false
 		for _, inc := range m.Includes {
-			if matchSingle(m.Mode, m.IgnoreCase, n, inc) {
+            if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, inc, m.FuzzyMaxDistance) {
 				matched = true
 				break
 			}
@@ -45,8 +48,8 @@ func (m Matcher) Matches(name string) bool {
 	}
 
 	// excludes
-	for _, exc := range m.Excludes {
-		if matchSingle(m.Mode, m.IgnoreCase, n, exc) {
+    for _, exc := range m.Excludes {
+        if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, exc, m.FuzzyMaxDistance) {
 			return false
 		}
 	}
@@ -96,14 +99,27 @@ func matchSingle(mode MatchMode, ignoreCase bool, target string, pattern string)
 	case MatchContains:
 		return strings.Contains(target, p)
 	case MatchFuzzy:
-		if ignoreCase {
-			return levenshtein(strings.ToLower(target), strings.ToLower(pattern)) <= 1
-		}
-		return levenshtein(target, pattern) <= 1
+        if ignoreCase {
+            return levenshtein(strings.ToLower(target), strings.ToLower(pattern)) <= 1
+        }
+        return levenshtein(target, pattern) <= 1
 	default:
 		ok, _ := path.Match(p, target)
 		return ok
 	}
+}
+
+func matchSingleWithDistance(mode MatchMode, ignoreCase bool, target string, pattern string, dist int) bool {
+    if mode != MatchFuzzy {
+        return matchSingle(mode, ignoreCase, target, pattern)
+    }
+    if dist <= 0 {
+        dist = 1
+    }
+    if ignoreCase {
+        return levenshtein(strings.ToLower(target), strings.ToLower(pattern)) <= dist
+    }
+    return levenshtein(target, pattern) <= dist
 }
 
 func levenshtein(a, b string) int {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type Runner interface {
@@ -38,9 +39,22 @@ func (ExecRunner) CaptureKubectl(args []string) ([]byte, []byte, error) {
 type K8sListPartial struct {
 	Items []struct {
 		Metadata struct {
-			Name      string `json:"name"`
-			Namespace string `json:"namespace"`
+			Name              string `json:"name"`
+			Namespace         string `json:"namespace"`
+			CreationTimestamp string `json:"creationTimestamp"`
 		} `json:"metadata"`
+		Status *struct {
+			ContainerStatuses []struct {
+				State *struct {
+					Waiting *struct {
+						Reason string `json:"reason"`
+					} `json:"waiting"`
+					Terminated *struct {
+						Reason string `json:"reason"`
+					} `json:"terminated"`
+				} `json:"state"`
+			} `json:"containerStatuses"`
+		} `json:"status"`
 	} `json:"items"`
 }
 
@@ -62,7 +76,25 @@ func discoverNames(runner Runner, resource string, discoveryFlags []string) ([]N
 	}
 	var refs []NameRef
 	for _, it := range list.Items {
-		refs = append(refs, NameRef{Namespace: it.Metadata.Namespace, Name: it.Metadata.Name})
+		var created time.Time
+		if it.Metadata.CreationTimestamp != "" {
+			t, _ := time.Parse(time.RFC3339, it.Metadata.CreationTimestamp)
+			created = t
+		}
+		var reasons []string
+		if it.Status != nil {
+			for _, cs := range it.Status.ContainerStatuses {
+				if cs.State != nil {
+					if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+						reasons = append(reasons, cs.State.Waiting.Reason)
+					}
+					if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
+						reasons = append(reasons, cs.State.Terminated.Reason)
+					}
+				}
+			}
+		}
+		refs = append(refs, NameRef{Namespace: it.Metadata.Namespace, Name: it.Metadata.Name, CreatedAt: created, PodReasons: reasons})
 	}
 	return refs, nil
 }

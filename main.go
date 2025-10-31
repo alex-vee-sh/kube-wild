@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 type matchedRef struct{ ns, name string }
@@ -61,6 +62,30 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	for _, r := range refs {
 		nsname := r.Namespace + "/" + r.Name
 		if (matcher.Matches(r.Name) || matcher.Matches(nsname)) && matcher.NamespaceAllowed(r.Namespace) {
+			// Age filters
+			if opts.OlderThan > 0 || opts.YoungerThan > 0 {
+				age := time.Since(r.CreatedAt)
+				if opts.OlderThan > 0 && age < opts.OlderThan {
+					continue
+				}
+				if opts.YoungerThan > 0 && age > opts.YoungerThan {
+					continue
+				}
+			}
+			// Pod status filters (only when resource == pods)
+			if opts.Resource == "pods" && len(opts.PodStatuses) > 0 {
+				keep := false
+				for _, s := range opts.PodStatuses {
+					for _, reason := range r.PodReasons {
+						if strings.EqualFold(reason, s) {
+							keep = true
+						}
+					}
+				}
+				if !keep {
+					continue
+				}
+			}
 			matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name})
 		}
 	}

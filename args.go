@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Verb string
@@ -44,6 +45,10 @@ type CLIOptions struct {
 	ServerDryRun     bool
 	Fuzzy            bool
 	FuzzyMaxDistance int
+	OlderThan        time.Duration
+	YoungerThan      time.Duration
+	PodStatuses      []string
+	OutputJSON       bool
 
 	// Raw flags for discovery `kubectl get ... -o json`
 	DiscoveryFlags []string
@@ -248,6 +253,44 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			continue
 		case "--server-dry-run":
 			opts.ServerDryRun = true
+			continue
+		case "--older-than":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--older-than requires a duration value (e.g., 15m, 2h, 7d)")
+			}
+			d, err := time.ParseDuration(flags[i+1])
+			if err != nil {
+				return opts, fmt.Errorf("invalid duration for --older-than")
+			}
+			opts.OlderThan = d
+			i++
+			continue
+		case "--younger-than":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--younger-than requires a duration value")
+			}
+			d, err := time.ParseDuration(flags[i+1])
+			if err != nil {
+				return opts, fmt.Errorf("invalid duration for --younger-than")
+			}
+			opts.YoungerThan = d
+			i++
+			continue
+		case "--pod-status":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--pod-status requires a value")
+			}
+			opts.PodStatuses = append(opts.PodStatuses, flags[i+1])
+			i++
+			continue
+		case "--output":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--output requires a value")
+			}
+			if flags[i+1] == "json" {
+				opts.OutputJSON = true
+			}
+			i++
 			continue
 		}
 
