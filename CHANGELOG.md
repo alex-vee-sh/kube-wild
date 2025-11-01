@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.3
+- Labels:
+  - New selectors: `--label key=glob`, `--label-prefix key=pfx`, `--label-contains key=sub`, `--label-regex key=re`
+  - Label key presence: `--label-key-regex re` (AND across repeats)
+  - Grouping UX: `--group-by-label key` (adds `-L key` to kubectl table); optional `--colorize-labels` summary
+- Node filters: `--node`, `--node-prefix`, `--node-regex`
+- Pod health:
+  - Restarts filter: `--restarts >N|>=N|<N|<=N|=N`
+  - `--containers-not-ready` matches pods with any not-ready containers
+  - Reason filtering: `--reason Reason` with optional `--container-name name`
+- Discovery enriched: nodeName, restart counts, ready flags, ownerReferences, reasons per-container
+- CI: release artifacts embed version metadata via ldflags (`version`, `commit`, `date`)
+- Tests: added coverage for label filters, node prefix, restart expressions, container-scoped reasons, label-key regex
+
 ## v1.0.2
 - Pod status filtering tightened:
   - `--pod-status Running` now excludes pods with error reasons (e.g., CrashLoopBackOff/Error)
