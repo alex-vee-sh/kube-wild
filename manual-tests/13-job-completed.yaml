@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: quick-job
+  namespace: dev-x
+  labels:
+    app: kube-wild-manualtest
+spec:
+  template:
+    metadata:
+      labels:
+        app: kube-wild-manualtest
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: do
+          image: busybox:1.36
+          command: ["sh","-c","echo done"]
+  backoffLimit: 0

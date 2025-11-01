@@ -51,18 +51,49 @@ kubectl wild --help
 Usage
 -----
 
-Always quote your patterns to prevent your shell from expanding them:
+`kubectl wild (get|delete|describe) [resource] [pattern] [flags...] [-- extra]`
+
+Always quote your patterns to prevent your shell from expanding them.
+
+Key flags:
+
+- Matching: `--regex` | `--contains` | `--fuzzy` (`--fuzzy-distance N`) | `--prefix/-p VAL` | `--match VAL` | `--exclude VAL` | `--ignore-case`
+- Scope: `-n/--namespace NS` | `-A/--all-namespaces` | `--ns NS` | `--ns-prefix PFX` | `--ns-regex RE`
+- Safety: `--dry-run` | `--server-dry-run` | `--confirm-threshold N` | `--yes/-y` | `--preview [list|table]` | `--no-color`
+- Pod filters: `--older-than DURATION` | `--younger-than DURATION` | `--pod-status STATUS` | `--unhealthy`
+- Output: `--output json`
+
+Examples:
 
 ```bash
 # Defaults: resource pods, pattern * in current namespace
 kubectl wild get
 
-# Wildcards
+# Glob match in a namespace
 kubectl wild get pods 'a*' -n default
-kubectl wild describe pods --regex '^(api|web)-' -A
-kubectl wild delete pods 'te*' -n default
+
+# Regex across all namespaces (single kubectl table)
+kubectl wild get pods --regex '^(api|web)-' -A
+
+# Contains (provide pattern via --match)
+kubectl wild get pods --contains --match pi- -n dev-x
+
+# Prefix helpers
 kubectl wild get pods --prefix foo -n default   # equivalent to 'foo*'
 kubectl wild get pods -p foo -n default        # short for --prefix
+
+# Fuzzy (handles hashed pod names)
+kubectl wild get pods --fuzzy --fuzzy-distance 1 --match apu-1 -n dev-x
+
+# Namespace filters
+kubectl wild get pods -A --ns-prefix prod-
+
+# Pod age/status filters
+kubectl wild get pods -A --younger-than 10m --pod-status Running
+kubectl wild get pods -A --older-than 1h --pod-status Pending
+
+# Unhealthy pods (not clean Running, not Succeeded)
+kubectl wild get pods -A --unhealthy
 ```
 
 - Flags after the pattern are passed through to `kubectl` (e.g., `-n`, `-A`, `-l`).

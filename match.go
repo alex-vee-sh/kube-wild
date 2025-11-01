@@ -12,6 +12,7 @@ type NameRef struct {
 	Name       string
 	CreatedAt  time.Time
 	PodReasons []string
+	PodPhase   string
 }
 
 type Matcher struct {
@@ -34,10 +35,10 @@ func (m Matcher) Matches(name string) bool {
 	}
 
 	// includes
-    if len(m.Includes) > 0 {
+	if len(m.Includes) > 0 {
 		matched := false
 		for _, inc := range m.Includes {
-            if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, inc, m.FuzzyMaxDistance) {
+			if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, inc, m.FuzzyMaxDistance) {
 				matched = true
 				break
 			}
@@ -48,8 +49,8 @@ func (m Matcher) Matches(name string) bool {
 	}
 
 	// excludes
-    for _, exc := range m.Excludes {
-        if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, exc, m.FuzzyMaxDistance) {
+	for _, exc := range m.Excludes {
+		if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, exc, m.FuzzyMaxDistance) {
 			return false
 		}
 	}
@@ -99,10 +100,7 @@ func matchSingle(mode MatchMode, ignoreCase bool, target string, pattern string)
 	case MatchContains:
 		return strings.Contains(target, p)
 	case MatchFuzzy:
-        if ignoreCase {
-            return levenshtein(strings.ToLower(target), strings.ToLower(pattern)) <= 1
-        }
-        return levenshtein(target, pattern) <= 1
+		return fuzzyContains(target, pattern, 1, ignoreCase)
 	default:
 		ok, _ := path.Match(p, target)
 		return ok
@@ -110,17 +108,57 @@ func matchSingle(mode MatchMode, ignoreCase bool, target string, pattern string)
 }
 
 func matchSingleWithDistance(mode MatchMode, ignoreCase bool, target string, pattern string, dist int) bool {
-    if mode != MatchFuzzy {
-        return matchSingle(mode, ignoreCase, target, pattern)
-    }
-    if dist <= 0 {
-        dist = 1
-    }
-    if ignoreCase {
-        return levenshtein(strings.ToLower(target), strings.ToLower(pattern)) <= dist
-    }
-    return levenshtein(target, pattern) <= dist
+	if mode != MatchFuzzy {
+		return matchSingle(mode, ignoreCase, target, pattern)
+	}
+	if dist <= 0 {
+		dist = 1
+	}
+	return fuzzyContains(target, pattern, dist, ignoreCase)
 }
+
+// fuzzyContains matches pattern against target allowing up to dist edits.
+// In addition to full-string distance, it attempts token-prefix and sliding-window
+// matches so that patterns like "apu-1" can match pod names like "api-1-abc123".
+func fuzzyContains(target string, pattern string, dist int, ignoreCase bool) bool {
+	if pattern == "" {
+		return true
+	}
+	t := target
+	p := pattern
+	if ignoreCase {
+		t = strings.ToLower(t)
+		p = strings.ToLower(p)
+	}
+	if levenshtein(t, p) <= dist {
+		return true
+	}
+	// Token-based checks (split by common pod delimiters)
+	delims := func(r rune) bool { return r == '-' || r == '_' || r == '.' }
+	tokens := strings.FieldsFunc(t, delims)
+	if len(tokens) > 0 {
+		// Check cumulative prefixes of tokens (e.g., "api-1")
+		var cumulative string
+		for i, tok := range tokens {
+			if i == 0 {
+				cumulative = tok
+			} else {
+				cumulative = cumulative + "-" + tok
+			}
+			if levenshtein(cumulative, p) <= dist {
+				return true
+			}
+			if levenshtein(tok, p) <= dist {
+				return true
+			}
+			// Note: intentionally avoid arbitrary sliding windows to reduce false positives
+			// like matching "pending-forever" for pattern "ngin".
+		}
+	}
+	return false
+}
+
+// fuzzyWindow removed to avoid over-matching arbitrary inner substrings.
 
 func levenshtein(a, b string) int {
 	if a == b {

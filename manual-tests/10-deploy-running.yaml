@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-1
+  namespace: dev-x
+  labels:
+    app: kube-wild-manualtest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-1
+  template:
+    metadata:
+      labels:
+        app: api-1
+    spec:
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.9
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-1
+  namespace: dev-x
+  labels:
+    app: kube-wild-manualtest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-1
+  template:
+    metadata:
+      labels:
+        app: web-1
+    spec:
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.9
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  namespace: dev-x
+  labels:
+    app: kube-wild-manualtest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.9
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-1
+  namespace: prod-a
+  labels:
+    app: kube-wild-manualtest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-1
+  template:
+    metadata:
+      labels:
+        app: api-1
+    spec:
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.9
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-1
+  namespace: prod-a
+  labels:
+    app: kube-wild-manualtest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-1
+  template:
+    metadata:
+      labels:
+        app: web-1
+    spec:
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.9

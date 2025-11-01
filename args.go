@@ -48,7 +48,9 @@ type CLIOptions struct {
 	OlderThan        time.Duration
 	YoungerThan      time.Duration
 	PodStatuses      []string
+	Unhealthy        bool
 	OutputJSON       bool
+	Debug            bool
 
 	// Raw flags for discovery `kubectl get ... -o json`
 	DiscoveryFlags []string
@@ -104,9 +106,9 @@ func parseArgs(argv []string) (CLIOptions, error) {
 	} else {
 		opts.Resource = "pods"
 	}
-	// Compute index after resource
+	// Compute index after resource: if a resource token was present (even if normalized), advance by one
 	idxAfterRes := 1
-	if len(head) > 1 && opts.Resource == head[1] && !strings.HasPrefix(head[1], "-") {
+	if len(head) > 1 && !strings.HasPrefix(head[1], "-") {
 		idxAfterRes = 2
 	}
 	// Pattern present?
@@ -135,6 +137,9 @@ func parseArgs(argv []string) (CLIOptions, error) {
 		f := flags[i]
 		// plugin flags
 		switch f {
+		case "--debug":
+			opts.Debug = true
+			continue
 		case "--regex":
 			opts.Mode = MatchRegex
 			continue
@@ -282,6 +287,9 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			}
 			opts.PodStatuses = append(opts.PodStatuses, flags[i+1])
 			i++
+			continue
+		case "--unhealthy", "-unhealthy":
+			opts.Unhealthy = true
 			continue
 		case "--output":
 			if i+1 >= len(flags) {

@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespaces.yaml
+  - 10-deploy-running.yaml
+  - 11-pod-crashloop.yaml
+  - 12-pod-pending.yaml
+  - 13-job-completed.yaml
+  - 20-services.yaml
+  - 30-configmaps.yaml

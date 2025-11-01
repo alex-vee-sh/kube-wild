@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-crash
+  namespace: dev-x
+  labels:
+    app: kube-wild-manualtest
+spec:
+  restartPolicy: Always
+  containers:
+    - name: crash
+      image: busybox:1.36
+      command: ["sh","-c","exit 1"]

@@ -12,15 +12,41 @@ import (
 
 type matchedRef struct{ ns, name string }
 
+// These are intended to be overridden at build time via -ldflags, e.g.:
+// -ldflags "-X main.version=v1.0.1 -X main.commit=abc123 -X main.date=2025-11-01"
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage:\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild (get|delete|describe) <resource> <pattern> [flags...] [-- extra]\n\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild (get|delete|describe) [resource] [pattern] [flags...] [-- extra]\n\n")
+	fmt.Fprintf(os.Stderr, "Key flags:\n")
+	fmt.Fprintf(os.Stderr, "  Matching: --regex | --contains | --fuzzy [--fuzzy-distance N] | --prefix/-p VAL | --match VAL | --exclude VAL | --ignore-case\n")
+	fmt.Fprintf(os.Stderr, "  Scope: -n, --namespace NS | -A, --all-namespaces | --ns NS | --ns-prefix PFX | --ns-regex RE\n")
+	fmt.Fprintf(os.Stderr, "  Safety: --dry-run | --server-dry-run | --confirm-threshold N | --yes/-y | --preview [list|table] | --no-color\n")
+	fmt.Fprintf(os.Stderr, "  Pod filters: --older-than DURATION | --younger-than DURATION | --pod-status STATUS\n")
+	fmt.Fprintf(os.Stderr, "  Version/help: --version/-v | --help/-h\n\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
+	fmt.Fprintf(os.Stderr, "  # Match by glob (default), single namespace\n")
 	fmt.Fprintf(os.Stderr, "  kubectl wild get pods 'a*' -n default\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild delete pods 'te*' -n default -y\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild describe pods --regex '^(api|web)-' -A\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --prefix foo -n default   # same as 'foo*'\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -p foo -n default        # short for --prefix\n")
+	fmt.Fprintf(os.Stderr, "  # Delete with preview and confirm\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild delete cm -n default -p te --preview table\n")
+	fmt.Fprintf(os.Stderr, "  # Regex across all namespaces (single kubectl table)\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --regex '^(api|web)-' -A\n")
+	fmt.Fprintf(os.Stderr, "  # Contains mode (note: provide pattern via --match)\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --contains --match pi- -n dev-x\n")
+	fmt.Fprintf(os.Stderr, "  # Prefix helpers\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --prefix foo -n default\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -p foo -n default\n")
+	fmt.Fprintf(os.Stderr, "  # Fuzzy matching with edit distance=1 (handles hashed pod names)\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --fuzzy --fuzzy-distance 1 --match apu-1 -n dev-x\n")
+	fmt.Fprintf(os.Stderr, "  # Namespace filters\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --ns-prefix prod-\n")
+	fmt.Fprintf(os.Stderr, "  # Pod age/status filters\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --younger-than 10m --pod-status Running\n")
 	// logs intentionally not supported; prefer stern
 	fmt.Fprintf(os.Stderr, "\nPreview & color flags (delete): --no-color, --preview table\n")
 }
@@ -34,6 +60,22 @@ func main() {
 
 	if argv[0] == "-h" || argv[0] == "--help" || argv[0] == "help" {
 		printUsage()
+		return
+	}
+
+	if argv[0] == "-v" || argv[0] == "--version" || argv[0] == "version" {
+		// Print version info and exit
+		v := version
+		if v == "" {
+			v = "dev"
+		}
+		if commit != "" && date != "" {
+			fmt.Printf("kubectl-wild %s (%s, %s)\n", v, commit, date)
+		} else if commit != "" {
+			fmt.Printf("kubectl-wild %s (%s)\n", v, commit)
+		} else {
+			fmt.Printf("kubectl-wild %s\n", v)
+		}
 		return
 	}
 
@@ -55,6 +97,22 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	if err != nil {
 		return err
 	}
+	if opts.Debug {
+		// quick diagnostics: show discovered items and their reasons for pods
+		fmt.Fprintf(os.Stderr, "[debug] discovered %d %s\n", len(refs), opts.Resource)
+		fmt.Fprintf(os.Stderr, "[debug] mode=%v includes=%v excludes=%v ignoreCase=%v nsFilters: exact=%v prefix=%v regex=%v statuses=%v\n", opts.Mode, opts.Include, opts.Exclude, opts.IgnoreCase, opts.NsExact, opts.NsPrefix, opts.NsRegex, opts.PodStatuses)
+		if opts.Resource == "pods" {
+			shown := 0
+			for _, r := range refs {
+				if shown >= 50 { // cap output
+					fmt.Fprintln(os.Stderr, "[debug] ... (truncated)")
+					break
+				}
+				fmt.Fprintf(os.Stderr, "[debug] %s/%s reasons=%v\n", r.Namespace, r.Name, r.PodReasons)
+				shown++
+			}
+		}
+	}
 	// Build list of target names (either name or ns/name when -A)
 	matcher := Matcher{Mode: opts.Mode, Includes: opts.Include, Excludes: opts.Exclude, IgnoreCase: opts.IgnoreCase,
 		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: opts.NsRegex, FuzzyMaxDistance: opts.FuzzyMaxDistance}
@@ -74,19 +132,75 @@ func runCommand(runner Runner, opts CLIOptions) error {
 			}
 			// Pod status filters (only when resource == pods)
 			if opts.Resource == "pods" && len(opts.PodStatuses) > 0 {
-				keep := false
+				matchesAny := false
 				for _, s := range opts.PodStatuses {
-					for _, reason := range r.PodReasons {
-						if strings.EqualFold(reason, s) {
-							keep = true
+					ls := strings.ToLower(s)
+					switch ls {
+					case "running", "pending", "succeeded", "failed", "unknown":
+						// Phase-based match
+						if strings.EqualFold(r.PodPhase, s) {
+							if ls == "running" {
+								// Ensure no extra reasons beyond phase/"Running" (exclude CrashLoopBackOff, Error, etc.)
+								extra := false
+								for _, reason := range r.PodReasons {
+									if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") {
+										continue
+									}
+									extra = true
+									break
+								}
+								if !extra {
+									matchesAny = true
+								}
+							} else {
+								matchesAny = true
+							}
+						}
+					default:
+						// Container reason match
+						for _, reason := range r.PodReasons {
+							if strings.EqualFold(reason, s) {
+								matchesAny = true
+								break
+							}
 						}
 					}
+					if matchesAny {
+						break
+					}
 				}
-				if !keep {
+				if !matchesAny {
+					continue
+				}
+			}
+			if opts.Resource == "pods" && opts.Unhealthy {
+				// unhealthy: everything that is NOT clean Running and NOT Succeeded
+				isRunningClean := strings.EqualFold(r.PodPhase, "Running")
+				if isRunningClean {
+					for _, reason := range r.PodReasons {
+						if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") {
+							continue
+						}
+						isRunningClean = false
+						break
+					}
+				}
+				isSucceeded := strings.EqualFold(r.PodPhase, "Succeeded")
+				if isRunningClean || isSucceeded {
 					continue
 				}
 			}
 			matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name})
+		}
+	}
+	if opts.Debug {
+		fmt.Fprintf(os.Stderr, "[debug] matched after filters: %d\n", len(matched))
+		for i, m := range matched {
+			if i >= 20 {
+				fmt.Fprintln(os.Stderr, "[debug] ... (truncated)")
+				break
+			}
+			fmt.Fprintf(os.Stderr, "[debug] keep %s/%s\n", m.ns, m.name)
 		}
 	}
 	if len(matched) == 0 {
@@ -259,6 +373,13 @@ func runVerbPerScope(runner Runner, verb string, opts CLIOptions, matched []matc
 }
 
 func runBatched(runner Runner, verb string, resource string, targets []string, finalFlags []string, extra []string, batchSize int, suppressFirstHeader bool) error {
+	// Avoid infinite loops when batchSize is unset/zero or negative
+	if batchSize <= 0 {
+		batchSize = len(targets)
+		if batchSize == 0 {
+			return nil
+		}
+	}
 	for i := 0; i < len(targets); i += batchSize {
 		j := i + batchSize
 		if j > len(targets) {

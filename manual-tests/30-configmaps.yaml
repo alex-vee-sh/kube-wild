@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: te1
+  namespace: dev-x
+  labels:
+    app: kube-wild-manualtest
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: te2
+  namespace: dev-x
+  labels:
+    app: kube-wild-manualtest

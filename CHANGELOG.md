@@ -1,9 +1,18 @@
 # Changelog
 
+## v1.0.2
+- Pod status filtering tightened:
+  - `--pod-status Running` now excludes pods with error reasons (e.g., CrashLoopBackOff/Error)
+  - Added `--unhealthy` (alias: `-unhealthy`) to show non-healthy pods (not clean Running and not Succeeded)
+- Fuzzy matching refined to avoid inner-substring overmatches (e.g., `ngin` no longer matches `pending-forever`)
+- Fixed batching infinite loop when batch size was zero (tests could hang)
+- More deterministic tests; expanded coverage for fuzzy/age/status/namespace filters
+- Manual test scenarios validated; single-table `get -A` preserved
+
 ## v0.0.3
 - Namespace filters: `--ns`, `--ns-prefix`, `--ns-regex`
 - Safety: `--confirm-threshold`, `--server-dry-run`
-- Previews: default table on -A; red list shows NAMESPACE\tRESOURCE/NAME
+- Previews: default table on -A; red list shows NAMESPACE	RESOURCE/NAME
 - Docs update
 
 ## v0.0.2
