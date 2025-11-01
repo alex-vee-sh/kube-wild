@@ -1,5 +1,54 @@
 # Krew PR History and Templates
 
+## v1.0.3 (kubectl-wild)
+
+- Summary:
+  - Label selectors: `--label`, `--label-prefix`, `--label-contains`, `--label-regex`
+  - Label key presence: `--label-key-regex`
+  - Grouping/UX: `--group-by-label <key>` (adds `-L <key>` to kubectl table), optional `--colorize-labels`
+  - Node filters: `--node`, `--node-prefix`, `--node-regex`
+  - Pod health filters: `--restarts >N`, `--containers-not-ready`, `--reason <Reason>` with `--container-name <name>`
+  - CI release embeds version metadata via ldflags: version, commit, UTC date
+
+- PR body template:
+
+```
+Title: New plugin: wild (v1.0.3)
+
+This updates `wild` – a kubectl plugin for wildcard-friendly operations (get/describe/delete).
+
+Highlights:
+- Glob, regex, contains, prefix, and fuzzy matching (handles hashed names)
+- Namespace filters: --ns/--ns-prefix/--ns-regex
+- Labels: value globs/prefix/contains/regex; key presence via --label-key-regex
+- Group-by label: --group-by-label <key> (adds -L column), optional --colorize-labels summary
+- Nodes: --node/--node-prefix/--node-regex
+- Pod health: --restarts (>N, >=N, <N, <=N, =N), --containers-not-ready
+- Reasons: --reason OOMKilled|CrashLoopBackOff (optionally --container-name <name>)
+- Safe deletes: bright red previews, --dry-run/--server-dry-run, --confirm-threshold, -y
+- Native output: single kubectl table with NAMESPACE column for -A
+
+Changelog v1.0.3:
+- Added label selectors and label-key-regex presence filtering
+- Added node filters and pod health filters (restarts, not-ready)
+- Added reason filtering, container-scoped
+- Group-by label (-L column) with optional colored summary
+- Release binaries embed version metadata (tag, short SHA, UTC date)
+
+Manifest:
+- `krew/wild.yaml` generated via CI with SHA256 for darwin/linux/windows (amd64/arm64)
+- URIs point to GitHub release assets for v1.0.3
+
+Checklist:
+- [x] `kubectl krew` validate (locally)
+- [x] SHA256s computed
+- [x] Tested on macOS and Linux
+```
+
+---
+
+Note: When opening the PR, attach the `krew/wild.yaml` from the v1.0.3 release workflow output.
+
 ## v1.0.2 (kubectl-wild)
 
 - Summary:
