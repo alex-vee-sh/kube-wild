@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path"
 	"regexp"
 	"strings"
@@ -8,11 +9,17 @@ import (
 )
 
 type NameRef struct {
-	Namespace  string
-	Name       string
-	CreatedAt  time.Time
-	PodReasons []string
-	PodPhase   string
+	Namespace          string
+	Name               string
+	CreatedAt          time.Time
+	PodReasons         []string
+	PodPhase           string
+	Labels             map[string]string
+	NodeName           string
+	TotalRestarts      int
+	NotReadyContainers int
+	ReasonsByContainer map[string][]string
+	Owners             []string // Kind/Name pairs like Deployment/web-1
 }
 
 type Matcher struct {
@@ -26,6 +33,97 @@ type Matcher struct {
 	NsRegex  []string
 	// Fuzzy
 	FuzzyMaxDistance int
+
+	// Label filters
+	LabelFilters  []LabelFilter
+	LabelKeyRegex []string
+}
+
+type LabelMode int
+
+const (
+	LabelGlob LabelMode = iota
+	LabelPrefix
+	LabelContains
+	LabelRegex
+)
+
+type LabelFilter struct {
+	Key     string
+	Pattern string
+	Mode    LabelMode
+}
+
+func parseLabelKV(kv string, mode LabelMode) (LabelFilter, error) {
+	parts := strings.SplitN(kv, "=", 2)
+	if len(parts) != 2 || parts[0] == "" {
+		return LabelFilter{}, fmt.Errorf("label filter requires key=value: %s", kv)
+	}
+	return LabelFilter{Key: parts[0], Pattern: parts[1], Mode: mode}, nil
+}
+
+func labelValueMatches(value string, lf LabelFilter) bool {
+	switch lf.Mode {
+	case LabelGlob:
+		ok, _ := path.Match(lf.Pattern, value)
+		return ok
+	case LabelPrefix:
+		return strings.HasPrefix(value, lf.Pattern)
+	case LabelContains:
+		return strings.Contains(value, lf.Pattern)
+	case LabelRegex:
+		re := regexp.MustCompile(lf.Pattern)
+		return re.MatchString(value)
+	default:
+		ok, _ := path.Match(lf.Pattern, value)
+		return ok
+	}
+}
+
+// LabelsAllowed applies AND across different keys, and OR across multiple filters of the same key.
+func (m Matcher) LabelsAllowed(labels map[string]string) bool {
+	if len(m.LabelFilters) == 0 {
+		// If there are key-regex filters, require presence of at least one matching key per regex
+		if len(m.LabelKeyRegex) == 0 {
+			return true
+		}
+	}
+	// group filters by key
+	byKey := map[string][]LabelFilter{}
+	for _, lf := range m.LabelFilters {
+		byKey[lf.Key] = append(byKey[lf.Key], lf)
+	}
+	for key, fls := range byKey {
+		val, ok := labels[key]
+		if !ok {
+			return false
+		}
+		matchedAny := false
+		for _, f := range fls {
+			if labelValueMatches(val, f) {
+				matchedAny = true
+				break
+			}
+		}
+		if !matchedAny {
+			return false
+		}
+	}
+	// Key-regex presence checks (AND across regexes)
+	for _, reStr := range m.LabelKeyRegex {
+		re := regexp.MustCompile(reStr)
+		found := false
+		for k := range labels {
+			if re.MatchString(k) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func (m Matcher) Matches(name string) bool {

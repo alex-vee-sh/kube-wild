@@ -140,19 +140,6 @@ kubectl wild get pods 'api-*' -n kube-system
 kubectl wild delete pods 'test*'
 ```
 
-When to use wild vs regex
--------------------------
-
-- Use wild (glob) when:
-  - Quick name matches with `*`/`?` (e.g., `a*`, `*-controller`)
-  - Prefix matching without quotes via `-p/--prefix` (e.g., `-p api`)
-  - You want combine name globs with label selectors (`-l`) and namespace filters
-- Use regex when:
-  - Complex patterns (alternations, anchors), e.g., `^(api|web)-.*(blue|green)$`
-  - Case-insensitive matches with `--ignore-case` and `--regex`
-
-Tip: your shell may expand `*`. Prefer quotes (`'api-*'`) or `-p api`.
-
 Notes
 -----
 

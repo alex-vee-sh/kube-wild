@@ -503,6 +503,166 @@ func TestRegexAndContainsMatching(t *testing.T) {
 	}
 }
 
+func TestLabelFilters_Glob_AND_OR(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// Two items with labels: app=web-1, app=api-1
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"web-1\",\"namespace\":\"ns\",\"labels\":{\"app\":\"web-1\"}}},{" +
+		"\"metadata\":{\"name\":\"api-1\",\"namespace\":\"ns\",\"labels\":{\"app\":\"api-1\"}}}]}"
+	fr.outputs["get pods -o json"] = json
+	// label OR within same key: app=web-* OR app=api-*
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob}
+	lf1, _ := parseLabelKV("app=web-*", LabelGlob)
+	lf2, _ := parseLabelKV("app=api-*", LabelGlob)
+	opts.LabelFilters = []LabelFilter{lf1, lf2}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Should include both names across batched get calls
+	hasWeb := false
+	hasApi := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " web-1 ") {
+				hasWeb = true
+			}
+			if strings.Contains(joined, " api-1 ") {
+				hasApi = true
+			}
+		}
+	}
+	if !hasWeb || !hasApi {
+		t.Fatalf("label OR failed; calls=%v", fr.calls)
+	}
+}
+
+func TestGroupByLabel_AddsColumn(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"a\",\"namespace\":\"ns\",\"labels\":{\"app\":\"x\"}}}]}"
+	fr.outputs["get pods -o json"] = json
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob}
+	opts.GroupByLabel = "app"
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	sawL := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			for i := 2; i < len(c); i++ {
+				if c[i] == "-L" && i+1 < len(c) && c[i+1] == "app" {
+					sawL = true
+				}
+				if strings.HasPrefix(c[i], "-L=") {
+					sawL = true
+				}
+			}
+		}
+	}
+	if !sawL {
+		t.Fatalf("expected -L app in final get; calls=%v", fr.calls)
+	}
+}
+
+func TestNodeFilter_PrefixMatches(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"a\",\"namespace\":\"ns\"},\"spec\":{\"nodeName\":\"worker-1\"}},{" +
+		"\"metadata\":{\"name\":\"b\",\"namespace\":\"ns\"},\"spec\":{\"nodeName\":\"master-1\"}}]}"
+	fr.outputs["get pods -o json"] = json
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob}
+	opts.NodePrefix = []string{"worker-"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	onlyA := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " a ") && !strings.Contains(joined, " b ") {
+				onlyA = true
+			}
+		}
+	}
+	if !onlyA {
+		t.Fatalf("node prefix filter failed; calls=%v", fr.calls)
+	}
+}
+
+func TestRestartExpr_GreaterThan(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"a\",\"namespace\":\"ns\"},\"status\":{\"containerStatuses\":[{\"name\":\"c\",\"ready\":true,\"restartCount\":2,\"state\":{\"running\":{}}}]}},{" +
+		"\"metadata\":{\"name\":\"b\",\"namespace\":\"ns\"},\"status\":{\"containerStatuses\":[{\"name\":\"c\",\"ready\":true,\"restartCount\":0,\"state\":{\"running\":{}}}]}}]}"
+	fr.outputs["get pods -o json"] = json
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob, RestartExpr: ">1"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	onlyA := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " a ") && !strings.Contains(joined, " b ") {
+				onlyA = true
+			}
+		}
+	}
+	if !onlyA {
+		t.Fatalf("restart expr filter failed; calls=%v", fr.calls)
+	}
+}
+
+func TestReasonFilter_ContainerScoped(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"a\",\"namespace\":\"ns\"},\"status\":{\"containerStatuses\":[{\"name\":\"app\",\"ready\":false,\"restartCount\":1,\"state\":{\"waiting\":{\"reason\":\"OOMKilled\"}}},{\"name\":\"side\",\"ready\":true,\"restartCount\":0,\"state\":{\"running\":{}}}]}},{" +
+		"\"metadata\":{\"name\":\"b\",\"namespace\":\"ns\"},\"status\":{\"containerStatuses\":[{\"name\":\"app\",\"ready\":true,\"restartCount\":0,\"state\":{\"running\":{}}}]}}]}"
+	fr.outputs["get pods -o json"] = json
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob, ReasonFilters: []string{"OOMKilled"}, ContainerScope: "app"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	onlyA := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " a ") && !strings.Contains(joined, " b ") {
+				onlyA = true
+			}
+		}
+	}
+	if !onlyA {
+		t.Fatalf("container-scoped reason filter failed; calls=%v", fr.calls)
+	}
+}
+
+func TestLabelKeyRegex_Presence(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"a\",\"namespace\":\"ns\",\"labels\":{\"app\":\"x\"}}},{" +
+		"\"metadata\":{\"name\":\"b\",\"namespace\":\"ns\",\"labels\":{\"nope\":\"x\"}}}]}"
+	fr.outputs["get pods -o json"] = json
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob}
+	opts.LabelKeyRegex = []string{"^app$"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	onlyA := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " a ") && !strings.Contains(joined, " b ") {
+				onlyA = true
+			}
+		}
+	}
+	if !onlyA {
+		t.Fatalf("label key regex presence failed; calls=%v", fr.calls)
+	}
+}
+
 func TestAllNamespaces_TargetsNsName(t *testing.T) {
 	// craft discovery with namespaces
 	json := "{\"items\":[{" +

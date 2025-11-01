@@ -24,13 +24,20 @@ jobs:
         run: |
           set -e
           mkdir -p dist
+          SHORT_SHA=${GITHUB_SHA::7}
+          BUILD_DATE=$(date -u +%Y-%m-%d-%H-%M-UTC)
+          TAG_NAME=${GITHUB_REF##*/}
           for os in linux darwin windows; do
             for arch in amd64 arm64; do
               echo "Building $os/$arch"
               BIN=kubectl-wild
               EXT=""
               if [ "$os" = "windows" ]; then EXT=".exe"; fi
-              CGO_ENABLED=0 GOOS=$os GOARCH=$arch GO111MODULE=on go build -o ${BIN}${EXT} .
+              CGO_ENABLED=0 GOOS=$os GOARCH=$arch GO111MODULE=on \
+                go build -trimpath -ldflags "-s -w -X main.version=${TAG_NAME} -X main.commit=${SHORT_SHA} -X main.date=${BUILD_DATE}" -o ${BIN}${EXT} .
+              if [ "$os" = "linux" ] && [ "$arch" = "amd64" ]; then
+                echo "Version check:"; ./${BIN}${EXT} --version || true
+              fi
               tar -czf dist/kubectl-wild_${os}_${arch}.tar.gz ${BIN}${EXT} LICENSE
               rm -f kubectl-wild
             done

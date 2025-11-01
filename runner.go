@@ -39,14 +39,25 @@ func (ExecRunner) CaptureKubectl(args []string) ([]byte, []byte, error) {
 type K8sListPartial struct {
 	Items []struct {
 		Metadata struct {
-			Name              string `json:"name"`
-			Namespace         string `json:"namespace"`
-			CreationTimestamp string `json:"creationTimestamp"`
+			Name              string            `json:"name"`
+			Namespace         string            `json:"namespace"`
+			CreationTimestamp string            `json:"creationTimestamp"`
+			Labels            map[string]string `json:"labels"`
+			OwnerReferences   []struct {
+				Kind string `json:"kind"`
+				Name string `json:"name"`
+			} `json:"ownerReferences"`
 		} `json:"metadata"`
+		Spec *struct {
+			NodeName string `json:"nodeName"`
+		} `json:"spec"`
 		Status *struct {
 			Phase             string `json:"phase"`
 			ContainerStatuses []struct {
-				State *struct {
+				Name         string `json:"name"`
+				Ready        bool   `json:"ready"`
+				RestartCount int    `json:"restartCount"`
+				State        *struct {
 					Waiting *struct {
 						Reason string `json:"reason"`
 					} `json:"waiting"`
@@ -85,6 +96,9 @@ func discoverNames(runner Runner, resource string, discoveryFlags []string) ([]N
 		}
 		var reasons []string
 		var phase string
+		totalRestarts := 0
+		notReady := 0
+		reasonsByContainer := map[string][]string{}
 		if it.Status != nil {
 			// include pod phase (Pending, Running, Succeeded, Failed, Unknown)
 			if it.Status.Phase != "" {
@@ -92,21 +106,50 @@ func discoverNames(runner Runner, resource string, discoveryFlags []string) ([]N
 				reasons = append(reasons, it.Status.Phase)
 			}
 			for _, cs := range it.Status.ContainerStatuses {
+				totalRestarts += cs.RestartCount
+				if !cs.Ready {
+					notReady++
+				}
 				if cs.State != nil {
 					if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
 						reasons = append(reasons, cs.State.Waiting.Reason)
+						reasonsByContainer[cs.Name] = append(reasonsByContainer[cs.Name], cs.State.Waiting.Reason)
 					}
 					if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
 						reasons = append(reasons, cs.State.Terminated.Reason)
+						reasonsByContainer[cs.Name] = append(reasonsByContainer[cs.Name], cs.State.Terminated.Reason)
 					}
 					// running state has no reason; surface as "Running" for filters
 					if cs.State.Running != nil {
 						reasons = append(reasons, "Running")
+						reasonsByContainer[cs.Name] = append(reasonsByContainer[cs.Name], "Running")
 					}
 				}
 			}
 		}
-		refs = append(refs, NameRef{Namespace: it.Metadata.Namespace, Name: it.Metadata.Name, CreatedAt: created, PodReasons: reasons, PodPhase: phase})
+		var owners []string
+		for _, o := range it.Metadata.OwnerReferences {
+			if o.Kind != "" && o.Name != "" {
+				owners = append(owners, o.Kind+"/"+o.Name)
+			}
+		}
+		nodeName := ""
+		if it.Spec != nil {
+			nodeName = it.Spec.NodeName
+		}
+		refs = append(refs, NameRef{
+			Namespace:          it.Metadata.Namespace,
+			Name:               it.Metadata.Name,
+			CreatedAt:          created,
+			PodReasons:         reasons,
+			PodPhase:           phase,
+			Labels:             it.Metadata.Labels,
+			NodeName:           nodeName,
+			TotalRestarts:      totalRestarts,
+			NotReadyContainers: notReady,
+			ReasonsByContainer: reasonsByContainer,
+			Owners:             owners,
+		})
 	}
 	return refs, nil
 }

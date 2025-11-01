@@ -6,11 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
 
-type matchedRef struct{ ns, name string }
+type matchedRef struct {
+	ns, name string
+	labels   map[string]string
+}
 
 // These are intended to be overridden at build time via -ldflags, e.g.:
 // -ldflags "-X main.version=v1.0.1 -X main.commit=abc123 -X main.date=2025-11-01"
@@ -115,11 +119,12 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	}
 	// Build list of target names (either name or ns/name when -A)
 	matcher := Matcher{Mode: opts.Mode, Includes: opts.Include, Excludes: opts.Exclude, IgnoreCase: opts.IgnoreCase,
-		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: opts.NsRegex, FuzzyMaxDistance: opts.FuzzyMaxDistance}
+		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: opts.NsRegex, FuzzyMaxDistance: opts.FuzzyMaxDistance,
+		LabelFilters: opts.LabelFilters, LabelKeyRegex: opts.LabelKeyRegex}
 	var matched []matchedRef
 	for _, r := range refs {
 		nsname := r.Namespace + "/" + r.Name
-		if (matcher.Matches(r.Name) || matcher.Matches(nsname)) && matcher.NamespaceAllowed(r.Namespace) {
+		if (matcher.Matches(r.Name) || matcher.Matches(nsname)) && matcher.NamespaceAllowed(r.Namespace) && matcher.LabelsAllowed(r.Labels) {
 			// Age filters
 			if opts.OlderThan > 0 || opts.YoungerThan > 0 {
 				age := time.Since(r.CreatedAt)
@@ -127,6 +132,12 @@ func runCommand(runner Runner, opts CLIOptions) error {
 					continue
 				}
 				if opts.YoungerThan > 0 && age > opts.YoungerThan {
+					continue
+				}
+			}
+			// Node filters
+			if len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(opts.NodeRegex) > 0 {
+				if !nodeAllowed(r.NodeName, opts) {
 					continue
 				}
 			}
@@ -173,6 +184,24 @@ func runCommand(runner Runner, opts CLIOptions) error {
 					continue
 				}
 			}
+			// Restart expression filter
+			if opts.Resource == "pods" && opts.RestartExpr != "" {
+				if !compareIntExpr(r.TotalRestarts, opts.RestartExpr) {
+					continue
+				}
+			}
+			// Containers not ready
+			if opts.Resource == "pods" && opts.ContainersNotReady {
+				if r.NotReadyContainers == 0 {
+					continue
+				}
+			}
+			// Reason filters (optionally container-scoped)
+			if opts.Resource == "pods" && len(opts.ReasonFilters) > 0 {
+				if !reasonsMatch(r, opts.ReasonFilters, opts.ContainerScope) {
+					continue
+				}
+			}
 			if opts.Resource == "pods" && opts.Unhealthy {
 				// unhealthy: everything that is NOT clean Running and NOT Succeeded
 				isRunningClean := strings.EqualFold(r.PodPhase, "Running")
@@ -190,7 +219,7 @@ func runCommand(runner Runner, opts CLIOptions) error {
 					continue
 				}
 			}
-			matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name})
+			matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name, labels: r.Labels})
 		}
 	}
 	if opts.Debug {
@@ -210,6 +239,16 @@ func runCommand(runner Runner, opts CLIOptions) error {
 
 	switch opts.Verb {
 	case VerbGet:
+		// If grouping by label, add -L <key> for kubectl get to keep native table output.
+		// Print a colored summary ONLY when --colorize-labels is set.
+		if opts.GroupByLabel != "" {
+			if opts.ColorizeLabels {
+				printLabelSummary(os.Stderr, opts, matched)
+			}
+			if !containsFlag(opts.FinalFlags, "-L") && !containsFlagWithPrefix(opts.FinalFlags, "-L=") {
+				opts.FinalFlags = append([]string{"-L", opts.GroupByLabel}, opts.FinalFlags...)
+			}
+		}
 		return runVerbPerScope(runner, "get", opts, matched)
 	case VerbDescribe:
 		return runVerbPerScope(runner, "describe", opts, matched)
@@ -262,6 +301,102 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	default:
 		return fmt.Errorf("unsupported verb: %s", opts.Verb)
 	}
+}
+
+func nodeAllowed(node string, opts CLIOptions) bool {
+	if len(opts.NodeExact) == 0 && len(opts.NodePrefix) == 0 && len(opts.NodeRegex) == 0 {
+		return true
+	}
+	for _, n := range opts.NodeExact {
+		if node == n {
+			return true
+		}
+	}
+	for _, p := range opts.NodePrefix {
+		if strings.HasPrefix(node, p) {
+			return true
+		}
+	}
+	for _, re := range opts.NodeRegex {
+		if regexpMust(re).MatchString(node) {
+			return true
+		}
+	}
+	return false
+}
+
+func regexpMust(s string) *regexp.Regexp {
+	// safe helper without reusing packages around
+	return regexp.MustCompile(s)
+}
+
+func compareIntExpr(val int, expr string) bool {
+	// Supports >N, >=N, <N, <=N, =N or just N (treated as =N)
+	op := ""
+	numStr := expr
+	if strings.HasPrefix(expr, ">=") || strings.HasPrefix(expr, "<=") {
+		op = expr[:2]
+		numStr = expr[2:]
+	} else if strings.HasPrefix(expr, ">") || strings.HasPrefix(expr, "<") || strings.HasPrefix(expr, "=") {
+		op = expr[:1]
+		numStr = expr[1:]
+	} else {
+		op = "="
+	}
+	n := 0
+	for i := 0; i < len(numStr); i++ {
+		c := numStr[i]
+		if c < '0' || c > '9' {
+			return false
+		}
+		n = n*10 + int(c-'0')
+	}
+	switch op {
+	case ">":
+		return val > n
+	case ">=":
+		return val >= n
+	case "<":
+		return val < n
+	case "<=":
+		return val <= n
+	case "=":
+		return val == n
+	default:
+		return false
+	}
+}
+
+func reasonsMatch(r NameRef, reasons []string, container string) bool {
+	if container == "" {
+		for _, want := range reasons {
+			matched := false
+			for _, have := range r.PodReasons {
+				if strings.EqualFold(have, want) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+		}
+		return true
+	}
+	vals := r.ReasonsByContainer[container]
+	for _, want := range reasons {
+		matched := false
+		for _, have := range vals {
+			if strings.EqualFold(have, want) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }
 
 func promptYesNo(prompt string) (bool, error) {
@@ -511,6 +646,62 @@ func colorize(s string, red bool, noColor bool) string {
 		return "\x1b[31;1m" + s + "\x1b[0m"
 	}
 	return s
+}
+
+func containsFlag(flags []string, flag string) bool {
+	for i := 0; i < len(flags); i++ {
+		if flags[i] == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func containsFlagWithPrefix(flags []string, prefix string) bool {
+	for _, f := range flags {
+		if strings.HasPrefix(f, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func colorForValue(val string) string {
+	// deterministic color from hash of value
+	colors := []string{"31", "32", "33", "34", "35", "36"} // red, green, yellow, blue, magenta, cyan
+	h := 0
+	for i := 0; i < len(val); i++ {
+		h = int(val[i]) + (h << 6) + (h << 16) - h
+	}
+	idx := (h & 0x7fffffff) % len(colors)
+	return "\x1b[" + colors[idx] + ";1m"
+}
+
+func printLabelSummary(w *os.File, opts CLIOptions, matched []matchedRef) {
+	key := opts.GroupByLabel
+	groups := map[string]int{}
+	for _, m := range matched {
+		if m.labels == nil {
+			continue
+		}
+		val := m.labels[key]
+		groups[val] = groups[val] + 1
+	}
+	// Print summary to stderr so table output remains clean when piped
+	fmt.Fprintf(w, "Grouping by label %s:\n", key)
+	for val, count := range groups {
+		labelText := val
+		if labelText == "" {
+			labelText = "(none)"
+		}
+		if opts.ColorizeLabels && !opts.NoColor {
+			c := colorForValue(labelText)
+			fmt.Fprintf(w, "%s%s\x1b[0m → %d\n", c, labelText, count)
+		} else {
+			fmt.Fprintf(w, "%s → %d\n", labelText, count)
+		}
+	}
+	fmt.Fprintf(w, "Added -L %s to kubectl output.\n", key)
 }
 
 func previewAsList(opts CLIOptions, matched []matchedRef) {

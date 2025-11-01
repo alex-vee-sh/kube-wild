@@ -52,6 +52,25 @@ type CLIOptions struct {
 	OutputJSON       bool
 	Debug            bool
 
+	// Label filtering and grouping
+	LabelFilters   []LabelFilter
+	GroupByLabel   string
+	ColorizeLabels bool
+
+	// Label key presence by regex
+	LabelKeyRegex []string
+
+	// Node filters
+	NodeExact  []string
+	NodePrefix []string
+	NodeRegex  []string
+
+	// Pod container health
+	RestartExpr        string // e.g., ">3", "<=1"
+	ContainersNotReady bool
+	ReasonFilters      []string
+	ContainerScope     string // container name to scope reason/restart checks
+
 	// Raw flags for discovery `kubectl get ... -o json`
 	DiscoveryFlags []string
 	// Raw flags for final `kubectl <verb> ...`
@@ -290,6 +309,116 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			continue
 		case "--unhealthy", "-unhealthy":
 			opts.Unhealthy = true
+			continue
+		case "--label":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--label requires key=pattern")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelGlob)
+			if err != nil {
+				return opts, err
+			}
+			opts.LabelFilters = append(opts.LabelFilters, lf)
+			continue
+		case "--label-prefix":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--label-prefix requires key=prefix")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelPrefix)
+			if err != nil {
+				return opts, err
+			}
+			opts.LabelFilters = append(opts.LabelFilters, lf)
+			continue
+		case "--label-contains":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--label-contains requires key=substr")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelContains)
+			if err != nil {
+				return opts, err
+			}
+			opts.LabelFilters = append(opts.LabelFilters, lf)
+			continue
+		case "--label-regex":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--label-regex requires key=regex")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelRegex)
+			if err != nil {
+				return opts, err
+			}
+			opts.LabelFilters = append(opts.LabelFilters, lf)
+			continue
+		case "--label-key-regex":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--label-key-regex requires a regex")
+			}
+			opts.LabelKeyRegex = append(opts.LabelKeyRegex, flags[i+1])
+			i++
+			continue
+		case "--node":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--node requires a value")
+			}
+			opts.NodeExact = append(opts.NodeExact, flags[i+1])
+			i++
+			continue
+		case "--node-prefix":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--node-prefix requires a value")
+			}
+			opts.NodePrefix = append(opts.NodePrefix, flags[i+1])
+			i++
+			continue
+		case "--node-regex":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--node-regex requires a value")
+			}
+			opts.NodeRegex = append(opts.NodeRegex, flags[i+1])
+			i++
+			continue
+		case "--restarts":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--restarts requires an expression like >3 or <=1")
+			}
+			opts.RestartExpr = flags[i+1]
+			i++
+			continue
+		case "--containers-not-ready":
+			opts.ContainersNotReady = true
+			continue
+		case "--reason":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--reason requires a value (e.g., OOMKilled)")
+			}
+			opts.ReasonFilters = append(opts.ReasonFilters, flags[i+1])
+			i++
+			continue
+		case "--container-name":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--container-name requires a value")
+			}
+			opts.ContainerScope = flags[i+1]
+			i++
+			continue
+		case "--group-by-label":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--group-by-label requires a key")
+			}
+			opts.GroupByLabel = flags[i+1]
+			i++
+			continue
+		case "--colorize-labels":
+			opts.ColorizeLabels = true
 			continue
 		case "--output":
 			if i+1 >= len(flags) {
