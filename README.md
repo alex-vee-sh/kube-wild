@@ -61,6 +61,9 @@ Key flags:
 - Scope: `-n/--namespace NS` | `-A/--all-namespaces` | `--ns NS` | `--ns-prefix PFX` | `--ns-regex RE`
 - Safety: `--dry-run` | `--server-dry-run` | `--confirm-threshold N` | `--yes/-y` | `--preview [list|table]` | `--no-color`
 - Pod filters: `--older-than DURATION` | `--younger-than DURATION` | `--pod-status STATUS` | `--unhealthy`
+- Label filters: `--label key=glob` | `--label-prefix key=prefix` | `--label-contains key=sub` | `--label-regex key=regex` | `--label-key-regex regex`
+- Grouping: `--group-by-label key` (adds `-L key` to kubectl table) | `--colorize-labels`
+- Node/container filters: `--node NAME` | `--node-prefix PFX` | `--node-regex RE` | `--restarts EXPR` (`>N`, `>=N`, `<N`, `<=N`, `=N`) | `--containers-not-ready` | `--reason REASON` | `--container-name NAME`
 - Output: `--output json`
 
 Examples:
@@ -94,6 +97,20 @@ kubectl wild get pods -A --older-than 1h --pod-status Pending
 
 # Unhealthy pods (not clean Running, not Succeeded)
 kubectl wild get pods -A --unhealthy
+
+# Label filters and grouping
+kubectl wild get pods -A --label 'app=web-*' --group-by-label app
+kubectl wild get pods -A --label-prefix 'app=web' --group-by-label app
+kubectl wild get pods -A --label-key-regex '^app$' --group-by-label app
+# Add a colored summary above the table (optional)
+kubectl wild get pods -A --label 'app=*' --group-by-label app --colorize-labels
+
+# Node and container health filters
+kubectl wild get pods -A --node-prefix worker-
+kubectl wild get pods -A --restarts '>0'
+kubectl wild get pods -A --containers-not-ready
+kubectl wild get pods -A --reason CrashLoopBackOff
+kubectl wild get pods -A --reason OOMKilled --container-name app
 ```
 
 - Flags after the pattern are passed through to `kubectl` (e.g., `-n`, `-A`, `-l`).
