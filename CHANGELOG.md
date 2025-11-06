@@ -1,5 +1,15 @@
+## Unreleased
+
+- (no changes yet)
+
 # Changelog
 
+## v1.0.4
+- Namespace wildcard filtering via `-n "prod-*"` (implicitly uses `-A` for discovery), works across all resources.
+- Dynamic CRD support: resources are canonicalized against `kubectl api-resources`, so singular/shortname/group-qualified forms resolve (e.g., `bgppeer`, `bgpp`, `bgppeers.metallb.io`).
+- Respect cluster-scoped kinds: suppress `-A`/`-n` and handle get/describe/delete without per-namespace logic.
+- Added tests validating `-A` single-table output for services/routes, wildcard `-n` behavior, cluster-scoped handling, and CRD canonicalization.
+- README updated with examples and behavior notes.
 ## v1.0.3
 - Labels:
   - New selectors: `--label key=glob`, `--label-prefix key=pfx`, `--label-contains key=sub`, `--label-regex key=re`
