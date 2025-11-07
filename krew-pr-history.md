@@ -1,5 +1,56 @@
 # Krew PR History and Templates
 
+## v1.0.7 (kubectl-wild)
+
+- Summary:
+  - Fully dynamic resource resolution (no hardcoding); try discovery first, resolve only if needed
+  - Passthrough optimization for canonical resources (with dots) when no filtering needed
+  - Support `WILD_KUBECTL`/`KUBECTL` env vars to use `oc` instead of `kubectl` (OpenShift)
+  - Core shortnames stay as-is (`svc` → `svc`); only CRDs resolve to canonical form
+  - Performance improvement for canonical resources
+
+- PR body template:
+
+```
+Title: Update plugin: wild (v1.0.7)
+
+This updates `wild` – a kubectl plugin for wildcard-friendly operations (get/describe/delete).
+
+Highlights:
+- Glob, regex, contains, prefix, and fuzzy matching (handles hashed names)
+- Namespace filters: --ns/--ns-prefix/--ns-regex, wildcard `-n "prod-*"`, and equals form `-n=prod-*`
+- Labels: value globs/prefix/contains/regex; key presence via --label-key-regex
+- Group-by label: --group-by-label <key> (adds -L column), optional --colorize-labels summary
+- Nodes: --node/--node-prefix/--node-regex
+- Pod health: --restarts (>N, >=N, <N, <=N, =N), --containers-not-ready
+- Reasons: --reason OOMKilled|CrashLoopBackOff (optionally --container-name <name>)
+- Safe deletes: bright red previews, --dry-run/--server-dry-run, --confirm-threshold, -y
+- Native output: single kubectl table with NAMESPACE column for -A
+- Dynamic CRD canonicalization and cluster-scope handling
+- OpenShift support via WILD_KUBECTL=oc
+
+Changelog v1.0.7:
+- Removed hardcoded resource normalization; fully dynamic via kubectl api-resources
+- Passthrough optimization for canonical resources (with dots) when no filtering needed
+- Support WILD_KUBECTL/KUBECTL env vars to use oc instead of kubectl
+- Core shortnames stay as-is (svc → svc); only CRDs resolve to canonical
+- Discovery-first: try as-is, resolve only if discovery fails
+- Performance improvement for canonical resources
+
+Manifest:
+- `krew/wild.yaml` generated via CI with SHA256 for darwin/linux/windows (amd64/arm64)
+- URIs point to GitHub release assets for v1.0.7
+
+Checklist:
+- [x] `kubectl krew` validate (locally)
+- [x] SHA256s computed
+- [x] Tested on macOS and Linux
+```
+
+---
+
+Note: When opening the PR, attach the `krew/wild.yaml` from the v1.0.7 release workflow output.
+
 ## v1.0.6 (kubectl-wild)
 
 - Summary:

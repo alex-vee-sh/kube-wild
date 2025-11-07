@@ -4,6 +4,14 @@
 
 # Changelog
 
+## v1.0.7
+- Removed hardcoded resource normalization; fully dynamic resolution via `kubectl api-resources`
+- Passthrough optimization: resources already in canonical form (with dots) skip discovery when no filtering needed
+- Support `WILD_KUBECTL`/`KUBECTL` environment variables to use `oc` instead of `kubectl` (OpenShift compatibility)
+- Resource resolution: core resource shortnames stay as-is (e.g., `svc` stays `svc`); only CRDs resolve to canonical form
+- Discovery-first approach: try discovery with resource as-is, only resolve if discovery fails (for CRDs)
+- Performance improvement for canonical resources (e.g., `clusteroperators.config.openshift.io`) when no filtering needed
+
 ## v1.0.6
 - Accept equals form for namespace: `-n=NS`, `--namespace=NS` with wildcard detection
 - Debug logs now show `AllNamespaces`, `Namespace`, and `DiscoveryFlags` to aid troubleshooting
