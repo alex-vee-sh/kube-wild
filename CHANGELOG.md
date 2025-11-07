@@ -4,6 +4,12 @@
 
 # Changelog
 
+## v1.0.5
+- Ensure namespace wildcard via `-n "pattern"` is included in released binaries:
+  - `-n` with globs implies `-A` for discovery and is translated to prefix/regex filters
+  - Keeps single-table `get` output with the NAMESPACE column
+- Documentation refined for `-n` wildcard behavior; no functional changes beyond packaging
+
 ## v1.0.4
 - Namespace wildcard filtering via `-n "prod-*"` (implicitly uses `-A` for discovery), works across all resources.
 - Dynamic CRD support: resources are canonicalized against `kubectl api-resources`, so singular/shortname/group-qualified forms resolve (e.g., `bgppeer`, `bgpp`, `bgppeers.metallb.io`).
