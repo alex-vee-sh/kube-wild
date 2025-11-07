@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
-	"strconv"
-	"strings"
-	"time"
+    "fmt"
+    "strconv"
+    "strings"
+    "time"
 )
 
 type Verb string
@@ -438,12 +438,52 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			continue
 		}
 		if f == "-n" || f == "--namespace" {
-			opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
+			// Support wildcard namespace filtering via -n "xyz*" across namespaces.
+			// If the provided namespace contains glob characters, treat it as a filter
+			// (NsPrefix/NsRegex) and force discovery with -A. Do not forward -n to discovery.
 			if i+1 < len(flags) && !strings.HasPrefix(flags[i+1], "-") {
-				opts.Namespace = flags[i+1]
-				opts.DiscoveryFlags = append(opts.DiscoveryFlags, flags[i+1])
+				val := flags[i+1]
+				if containsGlob(val) {
+					// Simple optimization: trailing '*' with no other glob -> prefix
+					if strings.HasSuffix(val, "*") && !strings.ContainsAny(val[:len(val)-1], "*?") {
+						opts.NsPrefix = append(opts.NsPrefix, strings.TrimSuffix(val, "*"))
+					} else {
+						opts.NsRegex = append(opts.NsRegex, globToRegex(val))
+					}
+					opts.AllNamespaces = true
+					// Ensure discovery uses -A; do not append -n pattern
+					opts.DiscoveryFlags = append(opts.DiscoveryFlags, "-A")
+					i++
+					continue
+				}
+				// Exact namespace: forward to discovery and remember for final invocations
+				opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
+				opts.Namespace = val
+				opts.DiscoveryFlags = append(opts.DiscoveryFlags, val)
 				i++
+				continue
 			}
+			// No value; just forward flag to discovery (kubectl will error and surface normally)
+			opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
+			continue
+		}
+		// equals-form namespace flags (e.g., -n=dev, --namespace=dev)
+		if strings.HasPrefix(f, "-n=") || strings.HasPrefix(f, "--namespace=") {
+			val := f[strings.Index(f, "=")+1:]
+			if containsGlob(val) {
+				if strings.HasSuffix(val, "*") && !strings.ContainsAny(val[:len(val)-1], "*?") {
+					opts.NsPrefix = append(opts.NsPrefix, strings.TrimSuffix(val, "*"))
+				} else {
+					opts.NsRegex = append(opts.NsRegex, globToRegex(val))
+				}
+				opts.AllNamespaces = true
+				// Ensure discovery uses -A; do not forward -n
+				opts.DiscoveryFlags = append(opts.DiscoveryFlags, "-A")
+				continue
+			}
+			// Exact namespace: forward as -n <ns> for discovery and remember for finals
+			opts.DiscoveryFlags = append(opts.DiscoveryFlags, "-n", val)
+			opts.Namespace = val
 			continue
 		}
 
@@ -508,9 +548,39 @@ func normalizeResource(r string) string {
 		return "serviceaccounts"
 	case "ing", "ingress", "ingresses":
 		return "ingresses"
+	case "route", "routes":
+		return "routes"
 	case "ns", "namespace", "namespaces":
 		return "namespaces"
 	default:
 		return r
 	}
+}
+
+// containsGlob returns true if s contains shell-style glob characters.
+func containsGlob(s string) bool {
+    return strings.ContainsAny(s, "*?")
+}
+
+// globToRegex converts a shell-style glob pattern to a full-string regex.
+// Example: "prod-*" -> "^prod-.*$" ; "*prod?" -> ".*prod.$"
+func globToRegex(glob string) string {
+    var b strings.Builder
+    b.WriteString("^")
+    for i := 0; i < len(glob); i++ {
+        c := glob[i]
+        switch c {
+        case '*':
+            b.WriteString(".*")
+        case '?':
+            b.WriteString(".")
+        case '.', '+', '(', ')', '|', '^', '$', '[', ']', '{', '}', '\\':
+            b.WriteByte('\\')
+            b.WriteByte(c)
+        default:
+            b.WriteByte(c)
+        }
+    }
+    b.WriteString("$")
+    return b.String()
 }

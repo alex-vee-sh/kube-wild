@@ -4,6 +4,10 @@
 
 # Changelog
 
+## v1.0.6
+- Accept equals form for namespace: `-n=NS`, `--namespace=NS` with wildcard detection
+- Debug logs now show `AllNamespaces`, `Namespace`, and `DiscoveryFlags` to aid troubleshooting
+
 ## v1.0.5
 - Ensure namespace wildcard via `-n "pattern"` is included in released binaries:
   - `-n` with globs implies `-A` for discovery and is translated to prefix/regex filters

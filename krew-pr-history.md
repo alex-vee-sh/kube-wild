@@ -1,5 +1,48 @@
 # Krew PR History and Templates
 
+## v1.0.6 (kubectl-wild)
+
+- Summary:
+  - Support equals-form namespace flags: `-n=NS`, `--namespace=NS` (wildcard-aware)
+  - Debug output includes `AllNamespaces`, `Namespace`, and `DiscoveryFlags`
+
+- PR body template:
+
+```
+Title: Update plugin: wild (v1.0.6)
+
+This updates `wild` – a kubectl plugin for wildcard-friendly operations (get/describe/delete).
+
+Highlights:
+- Glob, regex, contains, prefix, and fuzzy matching (handles hashed names)
+- Namespace filters: --ns/--ns-prefix/--ns-regex, wildcard `-n "prod-*"`, and equals form `-n=prod-*`
+- Labels: value globs/prefix/contains/regex; key presence via --label-key-regex
+- Group-by label: --group-by-label <key> (adds -L column), optional --colorize-labels summary
+- Nodes: --node/--node-prefix/--node-regex
+- Pod health: --restarts (>N, >=N, <N, <=N, =N), --containers-not-ready
+- Reasons: --reason OOMKilled|CrashLoopBackOff (optionally --container-name <name>)
+- Safe deletes: bright red previews, --dry-run/--server-dry-run, --confirm-threshold, -y
+- Native output: single kubectl table with NAMESPACE column for -A
+- Dynamic CRD canonicalization and cluster-scope handling
+
+Changelog v1.0.6:
+- Accept `-n=NS` / `--namespace=NS` with wildcard detection (implies -A on discovery)
+- Improve debug output to include discovery-related flags
+
+Manifest:
+- `krew/wild.yaml` generated via CI with SHA256 for darwin/linux/windows (amd64/arm64)
+- URIs point to GitHub release assets for v1.0.6
+
+Checklist:
+- [x] `kubectl krew` validate (locally)
+- [x] SHA256s computed
+- [x] Tested on macOS and Linux
+```
+
+---
+
+Note: When opening the PR, attach the `krew/wild.yaml` from the v1.0.6 release workflow output.
+
 ## v1.0.5 (kubectl-wild)
 
 - Summary:

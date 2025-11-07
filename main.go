@@ -49,6 +49,8 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --fuzzy --fuzzy-distance 1 --match apu-1 -n dev-x\n")
 	fmt.Fprintf(os.Stderr, "  # Namespace filters\n")
 	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --ns-prefix prod-\n")
+	fmt.Fprintf(os.Stderr, "  # Namespace wildcard via -n across namespaces (adds -A implicitly)\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get svc -n 'prod-*'\n")
 	fmt.Fprintf(os.Stderr, "  # Pod age/status filters\n")
 	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --younger-than 10m --pod-status Running\n")
 	// logs intentionally not supported; prefer stern
@@ -97,14 +99,19 @@ func main() {
 }
 
 func runCommand(runner Runner, opts CLIOptions) error {
-	refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
+    // Resolve resource to canonical form (plural[.group]) so CRDs like bgppeers/metallb.io work
+    if canon, err := resolveCanonicalResource(runner, opts.Resource); err == nil && canon != "" {
+        opts.Resource = canon
+    }
+    refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
 	if err != nil {
 		return err
 	}
 	if opts.Debug {
 		// quick diagnostics: show discovered items and their reasons for pods
 		fmt.Fprintf(os.Stderr, "[debug] discovered %d %s\n", len(refs), opts.Resource)
-		fmt.Fprintf(os.Stderr, "[debug] mode=%v includes=%v excludes=%v ignoreCase=%v nsFilters: exact=%v prefix=%v regex=%v statuses=%v\n", opts.Mode, opts.Include, opts.Exclude, opts.IgnoreCase, opts.NsExact, opts.NsPrefix, opts.NsRegex, opts.PodStatuses)
+        fmt.Fprintf(os.Stderr, "[debug] mode=%v includes=%v excludes=%v ignoreCase=%v nsFilters: exact=%v prefix=%v regex=%v statuses=%v\n", opts.Mode, opts.Include, opts.Exclude, opts.IgnoreCase, opts.NsExact, opts.NsPrefix, opts.NsRegex, opts.PodStatuses)
+        fmt.Fprintf(os.Stderr, "[debug] flags: AllNamespaces=%v Namespace=%q DiscoveryFlags=%v FinalFlags=%v\n", opts.AllNamespaces, opts.Namespace, opts.DiscoveryFlags, opts.FinalFlags)
 		if opts.Resource == "pods" {
 			shown := 0
 			for _, r := range refs {
@@ -485,11 +492,19 @@ func runVerbPerScope(runner Runner, verb string, opts CLIOptions, matched []matc
 		return runBatched(runner, verb, opts.Resource, targets, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
 	}
 	// All-namespaces
-	finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
-	if verb == "get" {
-		// Prefer a single kubectl call with ns/name targets and -A so kubectl prints the NAMESPACE column
-		return runGetAcrossNamespaces(runner, opts, matched)
-	}
+    finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+    if verb == "get" {
+        // Prefer a single kubectl call with ns/name targets and -A so kubectl prints the NAMESPACE column
+        return runGetAcrossNamespaces(runner, opts, matched)
+    }
+    // For non-get verbs, detect cluster-scoped and avoid per-namespace iteration
+    if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil && !namespaced {
+        var names []string
+        for _, m := range matched {
+            names = append(names, m.name)
+        }
+        return runBatched(runner, verb, opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
+    }
 	nsToNames := map[string][]string{}
 	for _, m := range matched {
 		nsToNames[m.ns] = append(nsToNames[m.ns], m.name)
@@ -561,10 +576,19 @@ func ensureAllNamespacesFlag(flags []string) []string {
 // Run a single or batched kubectl get across namespaces using ns/name targets with -A,
 // so kubectl includes the NAMESPACE column.
 func runGetAcrossNamespaces(runner Runner, opts CLIOptions, matched []matchedRef) error {
-	// Use filtered List approach to let kubectl render a single table with NAMESPACE
-	finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
-	finalFlags = ensureAllNamespacesFlag(finalFlags)
-	return runGetAllNamespacesSingleTable(runner, opts, matched, finalFlags)
+    // For cluster-scoped resources, avoid -A and fall back to normal batched get
+    if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil && !namespaced {
+        finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+        var names []string
+        for _, m := range matched {
+            names = append(names, m.name)
+        }
+        return runBatched(runner, "get", opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
+    }
+    // Use filtered List approach to let kubectl render a single table with NAMESPACE
+    finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+    finalFlags = ensureAllNamespacesFlag(finalFlags)
+    return runGetAllNamespacesSingleTable(runner, opts, matched, finalFlags)
 }
 
 // runGetAllNamespacesSingleTable combines results into a single kubectl table by
