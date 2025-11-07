@@ -120,8 +120,9 @@ func parseArgs(argv []string) (CLIOptions, error) {
 	// Format: <verb> [<resource>] [<pattern>] [flags...]
 	includeWasDefault := false
 	// Default resource to pods if absent or next token is a flag
+	// Don't normalize here - let resolveCanonicalResource handle it dynamically via kubectl api-resources
 	if len(head) > 1 && !strings.HasPrefix(head[1], "-") {
-		opts.Resource = normalizeResource(head[1])
+		opts.Resource = head[1]
 	} else {
 		opts.Resource = "pods"
 	}
@@ -530,32 +531,6 @@ func indexOf(ss []string, s string) int {
 	return -1
 }
 
-func normalizeResource(r string) string {
-	switch strings.ToLower(r) {
-	case "po", "pod", "pods":
-		return "pods"
-	case "svc", "service", "services":
-		return "services"
-	case "deploy", "deployment", "deployments":
-		return "deployments"
-	case "ds", "daemonset", "daemonsets":
-		return "daemonsets"
-	case "sts", "statefulset", "statefulsets":
-		return "statefulsets"
-	case "cm", "configmap", "configmaps":
-		return "configmaps"
-	case "sa", "serviceaccount", "serviceaccounts":
-		return "serviceaccounts"
-	case "ing", "ingress", "ingresses":
-		return "ingresses"
-	case "route", "routes":
-		return "routes"
-	case "ns", "namespace", "namespaces":
-		return "namespaces"
-	default:
-		return r
-	}
-}
 
 // containsGlob returns true if s contains shell-style glob characters.
 func containsGlob(s string) bool {

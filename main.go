@@ -98,15 +98,70 @@ func main() {
 	}
 }
 
-func runCommand(runner Runner, opts CLIOptions) error {
-    // Resolve resource to canonical form (plural[.group]) so CRDs like bgppeers/metallb.io work
-    if canon, err := resolveCanonicalResource(runner, opts.Resource); err == nil && canon != "" {
-        opts.Resource = canon
-    }
-    refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
-	if err != nil {
-		return err
+// runVerbPassthrough passes through directly to kubectl without discovery/filtering
+func runVerbPassthrough(runner Runner, opts CLIOptions) error {
+	args := []string{string(opts.Verb), opts.Resource}
+	// Add grouping label if requested
+	if opts.Verb == VerbGet && opts.GroupByLabel != "" {
+		if !containsFlag(opts.FinalFlags, "-L") && !containsFlagWithPrefix(opts.FinalFlags, "-L=") {
+			args = append(args, "-L", opts.GroupByLabel)
+		}
+		if opts.ColorizeLabels {
+			// Note: can't show colored summary without discovery, but that's OK for passthrough
+		}
 	}
+	args = append(args, opts.DiscoveryFlags...)
+	args = append(args, opts.FinalFlags...)
+	args = append(args, opts.ExtraFinal...)
+	return runner.RunKubectl(args)
+}
+
+func runCommand(runner Runner, opts CLIOptions) error {
+    // Optimization: if pattern is "*" (match all) and no filters are applied, skip discovery
+    // and pass through directly to kubectl for better performance
+    // Only do this for simple cases - if there are special behaviors needed, use discovery
+    hasPattern := len(opts.Include) > 0 && !(len(opts.Include) == 1 && opts.Include[0] == "*")
+    hasFilters := len(opts.Exclude) > 0 ||
+        len(opts.NsExact) > 0 || len(opts.NsPrefix) > 0 || len(opts.NsRegex) > 0 ||
+        len(opts.LabelFilters) > 0 || len(opts.LabelKeyRegex) > 0 ||
+        len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(opts.NodeRegex) > 0 ||
+        opts.OlderThan > 0 || opts.YoungerThan > 0 ||
+        len(opts.PodStatuses) > 0 || opts.Unhealthy ||
+        opts.RestartExpr != "" || opts.ContainersNotReady || len(opts.ReasonFilters) > 0
+    // Only passthrough for simple get cases: no pattern, no filters, no -A, no grouping
+    // This avoids complex behaviors that need discovery (single-table -A, cluster-scoped handling, etc.)
+    // Also skip passthrough if resource might need resolution (no dot = might be CRD shortname/singular)
+    resourceMightNeedResolution := !strings.Contains(opts.Resource, ".")
+    canPassthrough := !hasPattern && !hasFilters && opts.Verb == VerbGet && 
+        !opts.AllNamespaces && opts.GroupByLabel == "" && !resourceMightNeedResolution
+    if canPassthrough {
+        // No filtering needed - pass through directly to kubectl
+        if opts.Debug {
+            fmt.Fprintf(os.Stderr, "[debug] skipping discovery (no filters), passing through to kubectl\n")
+        }
+        return runVerbPassthrough(runner, opts)
+    }
+    
+    // Try discovery first with the resource as-is - let kubectl/oc handle shortnames and common forms
+    // Only resolve to canonical if discovery fails (likely a CRD that needs resolution)
+    refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
+    if err != nil {
+        // Discovery failed - might be a CRD that needs canonical resolution
+        // Try resolving and retry discovery
+        if canon, resolveErr := resolveCanonicalResource(runner, opts.Resource); resolveErr == nil && canon != "" && canon != opts.Resource {
+            if opts.Debug {
+                fmt.Fprintf(os.Stderr, "[debug] discovery failed for %q, trying resolved form %q\n", opts.Resource, canon)
+            }
+            opts.Resource = canon
+            refs, err = discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
+            if err != nil {
+                return err
+            }
+        } else {
+            // Resolution also failed or didn't change anything - return original error
+            return err
+        }
+    }
 	if opts.Debug {
 		// quick diagnostics: show discovered items and their reasons for pods
 		fmt.Fprintf(os.Stderr, "[debug] discovered %d %s\n", len(refs), opts.Resource)

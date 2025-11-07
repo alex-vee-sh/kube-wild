@@ -78,6 +78,9 @@ kubectl wild get pods 'a*' -n default
 # Regex across all namespaces (single kubectl table)
 kubectl wild get pods --regex '^(api|web)-' -A
 
+# Namespace wildcard via -n across namespaces (implies -A)
+kubectl wild get svc -n 'prod-*'
+
 # Contains (provide pattern via --match)
 kubectl wild get pods --contains --match pi- -n dev-x
 
@@ -117,6 +120,15 @@ kubectl wild get pods -A --reason OOMKilled --container-name app
 - For `get`, output is rendered as a single kubectl table; with `-A` the NAMESPACE column is included, like kubectl.
 - For `describe`, the plugin runs `kubectl describe` on the matched set.
 - For `delete`, the plugin previews matches and always asks for confirmation (`y/N`). The prompt is bright red by default to prevent accidents.
+
+Dynamic CRD support
+-------------------
+
+- Resource names are resolved dynamically using `kubectl api-resources` each run.
+- You can pass plural, singular, shortname, or group-qualified forms, e.g.:
+  - `bgppeers`, `bgppeer`, `bgpp`, or `bgppeers.metallb.io` → canonicalized to `bgppeers.metallb.io`.
+- For namespaced CRDs, `-A` is used for discovery and for the single-table `get` view.
+- For cluster-scoped resources (e.g., `nodes`, `customresourcedefinitions.apiextensions.k8s.io`), `-A`/`-n` are not forwarded.
 
 Delete preview and colors
 -------------------------

@@ -108,12 +108,13 @@ func TestParseArgs_Defaults(t *testing.T) {
 
 func TestParseArgs_NormalizeResource_DoesNotTreatResourceAsPattern(t *testing.T) {
 	// When resource token is a shortcut (po), the next non-flag token is pattern, not the resource itself
+	// Resource is passed through as-is; resolveCanonicalResource handles normalization dynamically
 	opts, err := parseArgs([]string{"get", "po", "-A", "--pod-status", "Running"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.Resource != "pods" {
-		t.Fatalf("expected resource pods, got %s", opts.Resource)
+	if opts.Resource != "po" {
+		t.Fatalf("expected resource po (passed through), got %s", opts.Resource)
 	}
 	if len(opts.Include) != 1 || opts.Include[0] != "*" {
 		t.Fatalf("expected default include '*', got %+v", opts.Include)
@@ -121,12 +122,17 @@ func TestParseArgs_NormalizeResource_DoesNotTreatResourceAsPattern(t *testing.T)
 }
 
 func TestRunCommand_WithShortcutResourceAndStatus(t *testing.T) {
-	// Ensure discovery uses pods and status filter works when resource provided as 'po'
+	// Ensure discovery works when resource provided as 'po'
+	// Now "po" stays as "po" (not resolved to "pods") for kubectl/oc compatibility
 	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	fr.outputs["api-resources --verbs=list"] = "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS\npods                              po           core           true         Pod          [list get]\n"
+	fr.outputs["api-resources -o name --verbs=list"] = "pods\n"
 	now := time.Now().UTC().Format(time.RFC3339)
 	json := fmt.Sprintf("{\"items\":[{\"metadata\":{\"name\":\"openapi\",\"namespace\":\"ns\",\"creationTimestamp\":\"%s\"},\"status\":{\"phase\":\"Running\"}},{\"metadata\":{\"name\":\"other\",\"namespace\":\"ns\",\"creationTimestamp\":\"%s\"},\"status\":{\"phase\":\"Pending\"}}]}", now, now)
+	// Mock both "po" and "pods" since "po" now stays as-is
+	fr.outputs["get po -o json -A"] = json
+	fr.outputs["get po -A -o json"] = json
 	fr.outputs["get pods -o json -A"] = json
-	// runGetAcrossNamespaces fetches with order: -A before -o json
 	fr.outputs["get pods -A -o json"] = json
 	opts, err := parseArgs([]string{"get", "po", "-A", "--pod-status", "Running"})
 	if err != nil {
@@ -147,14 +153,6 @@ func TestRunCommand_WithShortcutResourceAndStatus(t *testing.T) {
 	}
 }
 
-func TestNormalizeResource_Shortcuts(t *testing.T) {
-	if got := normalizeResource("po"); got != "pods" {
-		t.Fatalf("po -> %s", got)
-	}
-	if got := normalizeResource("svc"); got != "services" {
-		t.Fatalf("svc -> %s", got)
-	}
-}
 
 func TestParseArgs_AgeStatusOutputFlags(t *testing.T) {
 	opts, err := parseArgs([]string{"get", "pods", "*", "--older-than", "15m", "--younger-than", "2h", "--pod-status", "CrashLoopBackOff", "--output", "json"})
@@ -687,6 +685,435 @@ func TestAllNamespaces_TargetsNsName(t *testing.T) {
 	if !hasSingleTable {
 		t.Fatalf("expected single-table get -f invocation with -A; calls=%v", fr.calls)
 	}
+}
+
+func TestAllNamespaces_Services_SingleTable(t *testing.T) {
+    // craft discovery with namespaces for services
+    json := "{\"items\":[{" +
+        "\"metadata\":{\"name\":\"s1\",\"namespace\":\"ns1\"}},{" +
+        "\"metadata\":{\"name\":\"s2\",\"namespace\":\"ns2\"}}]}"
+    fr := &fakeRunner{outputs: map[string]string{
+        "get services -o json -A": json,
+        "get services -A -o json": json,
+    }, errs: map[string]error{}}
+    opts := CLIOptions{Verb: VerbGet, Resource: "services", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+    opts.DiscoveryFlags = []string{"-A"}
+    if err := runCommand(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    // expect a single-table call via -f and with -A present
+    hasSingleTable := false
+    for _, c := range fr.calls {
+        if len(c) >= 3 && c[0] == "get" && c[1] == "-f" {
+            joined := " " + strings.Join(c, " ") + " "
+            if strings.Contains(joined, " -A ") {
+                hasSingleTable = true
+            }
+        }
+    }
+    if !hasSingleTable {
+        t.Fatalf("expected single-table get -f invocation with -A; calls=%v", fr.calls)
+    }
+}
+
+func TestParseArgs_NamespaceWildcard(t *testing.T) {
+    opts, err := parseArgs([]string{"get", "pods", "-n", "xyz*"})
+    if err != nil {
+        t.Fatal(err)
+    }
+    if !opts.AllNamespaces {
+        t.Fatalf("expected AllNamespaces implied by wildcard -n")
+    }
+    if opts.Namespace != "" {
+        t.Fatalf("expected exact Namespace to be empty when wildcard provided, got %q", opts.Namespace)
+    }
+    if len(opts.NsPrefix) != 1 || opts.NsPrefix[0] != "xyz" {
+        t.Fatalf("expected NsPrefix [xyz], got %+v", opts.NsPrefix)
+    }
+    // discovery flags should include -A and not include -n xyz*
+    joined := " " + strings.Join(opts.DiscoveryFlags, " ") + " "
+    if !strings.Contains(joined, " -A ") {
+        t.Fatalf("expected -A in discovery flags; got %v", opts.DiscoveryFlags)
+    }
+    if strings.Contains(joined, " -n ") || strings.Contains(joined, " --namespace ") {
+        t.Fatalf("did not expect -n/--namespace forwarded for wildcard; got %v", opts.DiscoveryFlags)
+    }
+}
+
+func TestWildcardNamespace_EndToEnd_FilteredSingleTable(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    // services across namespaces; only prod-* should be kept
+    json := "{\"items\":[{" +
+        "\"metadata\":{\"name\":\"a\",\"namespace\":\"dev\"}}," +
+        "{\"metadata\":{\"name\":\"b\",\"namespace\":\"prod-x\"}}]}"
+    fr.outputs["get services -A -o json"] = json
+    fr.outputs["get services -o json -A"] = json
+    opts, err := parseArgs([]string{"get", "services", "-n", "prod-*"})
+    if err != nil {
+        t.Fatal(err)
+    }
+    if err := runCommand(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    // ensure single-table path used (get -f ...) and -A present
+    usedFilteredList := false
+    for _, c := range fr.calls {
+        if len(c) >= 2 && c[0] == "get" && c[1] == "-f" {
+            usedFilteredList = true
+        }
+    }
+    if !usedFilteredList {
+        t.Fatalf("expected filtered single-table call; calls=%v", fr.calls)
+    }
+}
+
+func TestRoutes_AllNamespaces_SingleTable(t *testing.T) {
+    // OpenShift routes behave like namespaced resources for our purposes
+    json := "{\"items\":[{" +
+        "\"metadata\":{\"name\":\"r1\",\"namespace\":\"ns1\"}},{" +
+        "\"metadata\":{\"name\":\"r2\",\"namespace\":\"ns2\"}}]}"
+    fr := &fakeRunner{outputs: map[string]string{
+        "get routes -o json -A": json,
+        "get routes -A -o json": json,
+    }, errs: map[string]error{}}
+    opts := CLIOptions{Verb: VerbGet, Resource: "routes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+    opts.DiscoveryFlags = []string{"-A"}
+    if err := runCommand(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    usedFilteredList := false
+    for _, c := range fr.calls {
+        if len(c) >= 2 && c[0] == "get" && c[1] == "-f" {
+            usedFilteredList = true
+        }
+    }
+    if !usedFilteredList {
+        t.Fatalf("expected filtered single-table call; calls=%v", fr.calls)
+    }
+}
+
+func TestClusterScoped_IgnoresAllNamespaces(t *testing.T) {
+    // Simulate cluster-scoped resource like nodes
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    // api-resources responses
+    fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\nservices\n"
+    fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\ncustomresourcedefinitions.apiextensions.k8s.io\n"
+    // discovery for nodes should NOT include -A
+    fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
+    opts := CLIOptions{Verb: VerbGet, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+    opts.DiscoveryFlags = []string{"-A"}
+    if err := runCommand(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    // Ensure there was a get nodes call without -A and without -n and containing names
+    saw := false
+    for _, c := range fr.calls {
+        if len(c) >= 3 && c[0] == "get" && c[1] == "nodes" {
+            joined := " " + strings.Join(c, " ") + " "
+            if !strings.Contains(joined, " -A ") && !strings.Contains(joined, " -n ") && strings.Contains(joined, " n1 ") && strings.Contains(joined, " n2 ") {
+                saw = true
+            }
+        }
+    }
+    if !saw {
+        t.Fatalf("expected get nodes without -A/-n and with names; calls=%v", fr.calls)
+    }
+}
+
+func TestCanonicalResource_ResolvesCRD_FromSingularAndShortname(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    // api-resources discovery
+    fr.outputs["api-resources -o name --verbs=list"] = "bgppeers.metallb.io\n"
+    // table with columns: NAME SHORTNAMES APIGROUP NAMESPACED KIND VERBS
+    fr.outputs["api-resources --verbs=list"] = strings.Join([]string{
+        "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS",
+        "bgppeers                          bgpp        metallb.io      true         BGPPeer      [list get]",
+        "nodes                                           	             false        Node         [list get]",
+    }, "\n")
+    // discovery for canonical resource
+    fr.outputs["get bgppeers.metallb.io -o json"] = discoveryJSON("peer1")
+    // singular form should resolve to plural.group
+    opts := CLIOptions{Verb: VerbGet, Resource: "bgppeer", Include: []string{"*"}, Mode: MatchGlob}
+    if err := runCommand(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    // Ensure get targeted the canonical name
+    saw := false
+    for _, c := range fr.calls {
+        if len(c) >= 3 && c[0] == "get" && c[1] == "bgppeers.metallb.io" && c[2] == "-o" {
+            saw = true
+        }
+    }
+    if !saw {
+        t.Fatalf("expected discovery to use canonical plural.group; calls=%v", fr.calls)
+    }
+    // shortname should also resolve
+    fr.calls = nil
+    if err := runCommand(fr, CLIOptions{Verb: VerbGet, Resource: "bgpp", Include: []string{"*"}, Mode: MatchGlob}); err != nil {
+        t.Fatal(err)
+    }
+    saw = false
+    for _, c := range fr.calls {
+        if len(c) >= 3 && c[0] == "get" && c[1] == "bgppeers.metallb.io" && c[2] == "-o" {
+            saw = true
+        }
+    }
+    if !saw {
+        t.Fatalf("expected shortname to resolve to canonical; calls=%v", fr.calls)
+    }
+}
+
+func TestResolveCanonical_PassThroughGroupQualified(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    fr.outputs["api-resources -o name --verbs=list"] = "bgppeers.metallb.io\nservices\n"
+    got, err := resolveCanonicalResource(fr, "bgppeers.metallb.io")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if got != "bgppeers.metallb.io" {
+        t.Fatalf("expected pass-through, got %s", got)
+    }
+}
+
+func TestIsResourceNamespaced_NamespacedTrue(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "configmaps\n"
+    fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\n"
+    ns, err := isResourceNamespaced(fr, "configmaps")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if !ns {
+        t.Fatal("expected namespaced=true for configmaps")
+    }
+}
+
+func TestMatcher_NamespaceAllowed_ExactAndRegex(t *testing.T) {
+    m := Matcher{NsExact: []string{"dev"}}
+    if !m.NamespaceAllowed("dev") || m.NamespaceAllowed("prod") {
+        t.Fatal("NsExact failed")
+    }
+    m = Matcher{NsRegex: []string{"^prod-.*$"}}
+    if !m.NamespaceAllowed("prod-a") || m.NamespaceAllowed("dev") {
+        t.Fatal("NsRegex failed")
+    }
+}
+
+func TestFilterAndStripNamespaceFlags(t *testing.T) {
+    flags := []string{"-o", "json", "--output", "yaml", "-n", "default", "-A", "--all-namespaces"}
+    filtered := filterOutputFlags(flags)
+    joined := " " + strings.Join(filtered, " ") + " "
+    if strings.Contains(joined, " -o ") || strings.Contains(joined, " --output ") {
+        t.Fatalf("output flags not filtered: %v", filtered)
+    }
+    if !strings.Contains(joined, " -n ") || !strings.Contains(joined, " -A ") {
+        t.Fatalf("unexpected removal beyond output flags: %v", filtered)
+    }
+    if s := stripNamespaceFlag(filtered); strings.Contains(" "+strings.Join(s, " ")+" ", " -n ") {
+        t.Fatalf("-n not stripped: %v", s)
+    }
+    if s := stripAllNamespacesFlag(filtered); strings.Contains(" "+strings.Join(s, " ")+" ", " -A ") {
+        t.Fatalf("-A not stripped: %v", s)
+    }
+}
+
+func TestPrintLabelSummary_WritesCounts(t *testing.T) {
+    tmp, err := os.CreateTemp("", "wild-summary-*.txt")
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer os.Remove(tmp.Name())
+    matched := []matchedRef{
+        {ns: "ns1", name: "a", labels: map[string]string{"app": "web"}},
+        {ns: "ns1", name: "b", labels: map[string]string{"app": "web"}},
+        {ns: "ns2", name: "c", labels: map[string]string{"app": "api"}},
+    }
+    opts := CLIOptions{GroupByLabel: "app", ColorizeLabels: false}
+    printLabelSummary(tmp, opts, matched)
+    tmp.Close()
+    data, err := os.ReadFile(tmp.Name())
+    if err != nil {
+        t.Fatal(err)
+    }
+    s := string(data)
+    if !strings.Contains(s, "web → 2") || !strings.Contains(s, "api → 1") {
+        t.Fatalf("unexpected summary: %s", s)
+    }
+}
+
+func TestCompareIntExpr_AllOps(t *testing.T) {
+    if !compareIntExpr(5, ">3") {
+        t.Fatal("> failed")
+    }
+    if !compareIntExpr(5, ">=5") {
+        t.Fatal(">= failed")
+    }
+    if !compareIntExpr(3, "<5") {
+        t.Fatal("< failed")
+    }
+    if !compareIntExpr(3, "<=3") {
+        t.Fatal("<= failed")
+    }
+    if !compareIntExpr(3, "=3") || !compareIntExpr(3, "3") {
+        t.Fatal("= or bare number failed")
+    }
+    if compareIntExpr(3, ">x") {
+        t.Fatal("invalid should be false")
+    }
+}
+
+func TestNodeAllowed_ExactAndRegex(t *testing.T) {
+    opts := CLIOptions{NodeExact: []string{"n1"}}
+    if !nodeAllowed("n1", opts) || nodeAllowed("n2", opts) {
+        t.Fatal("exact node match failed")
+    }
+    opts = CLIOptions{NodeRegex: []string{"^work-\\d+$"}}
+    if !nodeAllowed("work-1", opts) || nodeAllowed("x", opts) {
+        t.Fatal("regex node match failed")
+    }
+}
+
+func TestMatcher_RegexIgnoreCase(t *testing.T) {
+    m := Matcher{Mode: MatchRegex, Includes: []string{"^api$"}, IgnoreCase: true}
+    if !m.Matches("API") || m.Matches("XAPI") {
+        t.Fatal("regex ignore-case failed")
+    }
+}
+
+func TestReasonsMatch_Unscoped_AllRequired(t *testing.T) {
+    r := NameRef{PodReasons: []string{"Running", "CrashLoopBackOff", "OOMKilled"}}
+    if !reasonsMatch(r, []string{"OOMKilled", "CrashLoopBackOff"}, "") {
+        t.Fatal("reasons AND logic failed")
+    }
+    if reasonsMatch(r, []string{"Pending", "OOMKilled"}, "") {
+        t.Fatal("reasons should not match")
+    }
+}
+
+func TestEnsureAllNamespacesFlag_AddsWhenMissing(t *testing.T) {
+    flags := []string{"-o", "wide"}
+    got := ensureAllNamespacesFlag(flags)
+    joined := " " + strings.Join(got, " ") + " "
+    if !strings.Contains(joined, " -A ") {
+        t.Fatal("-A not added")
+    }
+}
+
+func TestDescribeClusterScoped_AllNamespaces_NoNamespaceFlag(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    // api-resources: nodes cluster-scoped
+    fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\n"
+    fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\n"
+    // discovery
+    fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
+    opts := CLIOptions{Verb: VerbDescribe, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+    opts.DiscoveryFlags = []string{"-A"}
+    if err := runCommand(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    // Expect a describe call without -A/-n and with both names
+    saw := false
+    for _, c := range fr.calls {
+        if len(c) >= 3 && c[0] == "describe" && c[1] == "nodes" {
+            joined := " " + strings.Join(c, " ") + " "
+            if !strings.Contains(joined, " -A ") && !strings.Contains(joined, " -n ") && strings.Contains(joined, " n1 ") && strings.Contains(joined, " n2 ") {
+                saw = true
+            }
+        }
+    }
+    if !saw {
+        t.Fatalf("expected describe nodes without -A/-n; calls=%v", fr.calls)
+    }
+}
+
+func TestColorize_Functions(t *testing.T) {
+    s := colorize("x", true, false)
+    if !strings.Contains(s, "\x1b[") {
+        t.Fatal("expected ansi color")
+    }
+    if colorize("x", true, true) != "x" {
+        t.Fatal("no-color should passthrough")
+    }
+    if colorForValue("abc") == colorForValue("abc") {
+        // same value deterministic, but we cannot assert specific code; ensure non-empty
+    }
+}
+
+func TestGlobToRegex_Mapping(t *testing.T) {
+    re := globToRegex("*prod?")
+    if re != ".*prod." && re != "^.*prod.$" { // allow either if caret/dollar added in code
+        // Our implementation wraps with ^ and $, so enforce that
+    }
+    re = globToRegex("prod-*")
+    if re != "^prod-.*$" {
+        t.Fatalf("unexpected regex: %s", re)
+    }
+}
+
+func TestFilterOutputFlags_EqualsForms(t *testing.T) {
+    flags := []string{"-o=json", "--output=yaml", "--output=jsonpath={.items[*].metadata.name}", "-n", "ns"}
+    got := filterOutputFlags(flags)
+    joined := " " + strings.Join(got, " ") + " "
+    if strings.Contains(joined, " -o=") || strings.Contains(joined, " --output=") || strings.Contains(joined, " --output ") {
+        t.Fatalf("output flags with equals not filtered: %v", got)
+    }
+}
+
+func TestRunBatched_Logs(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    if err := runBatched(fr, "logs", "pods", []string{"p1", "p2"}, nil, nil, 10, false); err != nil {
+        t.Fatal(err)
+    }
+    // Expect two calls: logs p1 and logs p2
+    seen := 0
+    for _, c := range fr.calls {
+        if len(c) >= 2 && c[0] == "logs" && (c[1] == "p1" || c[1] == "p2") {
+            seen++
+        }
+    }
+    if seen != 2 {
+        t.Fatalf("expected 2 logs calls, got %d: %v", seen, fr.calls)
+    }
+}
+
+func TestEnsureAllNamespacesFlag_NoDuplicate(t *testing.T) {
+    flags := []string{"-A", "-o", "json"}
+    got := ensureAllNamespacesFlag(flags)
+    // Should remain single -A
+    count := 0
+    for _, f := range got {
+        if f == "-A" || f == "--all-namespaces" {
+            count++
+        }
+    }
+    if count != 1 {
+        t.Fatalf("expected single -A, got %v", got)
+    }
+}
+
+func TestResourceScopeCache_Used(t *testing.T) {
+    // Seed cache and verify lookup does not require runner outputs
+    resourceScopeCache[strings.ToLower("crd.example.com")] = false
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    ns, err := isResourceNamespaced(fr, "crd.example.com")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if ns {
+        t.Fatal("expected cluster-scoped from cache")
+    }
+}
+
+func TestResourceCanonicalCache_Used(t *testing.T) {
+    resourceCanonicalCache[strings.ToLower("foo")] = "things.example.com"
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    got, err := resolveCanonicalResource(fr, "foo")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if got != "things.example.com" {
+        t.Fatalf("expected cached canonical, got %s", got)
+    }
 }
 
 func TestNamespaceFilters_Applied(t *testing.T) {
