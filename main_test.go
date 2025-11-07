@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -501,6 +502,83 @@ func TestRegexAndContainsMatching(t *testing.T) {
 	}
 }
 
+func TestTopVerb_Pods(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// Build JSON with namespace for pods
+	json := "{\"items\":[" +
+		"{\"metadata\":{\"name\":\"api-1\",\"namespace\":\"default\"}}," +
+		"{\"metadata\":{\"name\":\"api-2\",\"namespace\":\"default\"}}," +
+		"{\"metadata\":{\"name\":\"web-1\",\"namespace\":\"default\"}}]}"
+	fr.outputs["get pods -o json -n default"] = json
+	
+	opts := CLIOptions{Verb: VerbTop, Resource: "pods", Include: []string{"api-*"}, Mode: MatchGlob, Namespace: "default", DiscoveryFlags: []string{"-n", "default"}}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatalf("runCommand failed: %v, calls=%v", err, fr.calls)
+	}
+	// Should call kubectl top pods with -n flag
+	// Note: with multiple pods, kubectl top doesn't accept pod names, so we call without names
+	found := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "top" && c[1] == "pods" {
+			joined := strings.Join(c[2:], " ")
+			// With multiple pods, we don't pass pod names, just -n flag
+			if strings.Contains(joined, "-n") || strings.Contains(joined, "--namespace") {
+				found = true
+				// Should not have pod names when multiple pods matched
+				if strings.Contains(joined, "api-1") || strings.Contains(joined, "api-2") {
+					t.Fatal("expected no pod names when multiple pods matched")
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected top pods call with -n flag; calls=%v", fr.calls)
+	}
+}
+
+func TestTopVerb_Nodes(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := discoveryJSON("node-1", "node-2", "master-1")
+	fr.outputs["get nodes -o json"] = json
+	
+	opts := CLIOptions{Verb: VerbTop, Resource: "nodes", Include: []string{"node-*"}, Mode: MatchGlob}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Should call kubectl top nodes with matched names, no namespace flag
+	found := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "top" && c[1] == "nodes" {
+			joined := strings.Join(c[2:], " ")
+			if strings.Contains(joined, "node-1") && strings.Contains(joined, "node-2") && !strings.Contains(joined, "master-1") {
+				found = true
+				// Check namespace flag is NOT present (nodes are cluster-scoped)
+				if strings.Contains(joined, "-n") || strings.Contains(joined, "--namespace") || strings.Contains(joined, "-A") {
+					t.Fatal("nodes top should not have namespace flags")
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected top nodes call with node-1 and node-2; calls=%v", fr.calls)
+	}
+}
+
+func TestTopVerb_InvalidResource(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := discoveryJSON("svc-1")
+	fr.outputs["get services -o json"] = json
+	
+	opts := CLIOptions{Verb: VerbTop, Resource: "services", Include: []string{"*"}, Mode: MatchGlob}
+	err := runCommand(fr, opts)
+	if err == nil {
+		t.Fatal("expected error for top with non-pod/node resource")
+	}
+	if !strings.Contains(err.Error(), "only supports pods and nodes") {
+		t.Fatalf("expected error about pods/nodes only, got: %v", err)
+	}
+}
+
 func TestLabelFilters_Glob_AND_OR(t *testing.T) {
 	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
 	// Two items with labels: app=web-1, app=api-1
@@ -532,6 +610,71 @@ func TestLabelFilters_Glob_AND_OR(t *testing.T) {
 	}
 	if !hasWeb || !hasApi {
 		t.Fatalf("label OR failed; calls=%v", fr.calls)
+	}
+}
+
+func TestAnnotationFilters_Glob_AND_OR(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// Two items with annotations: version=v1.0, version=v2.0
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"web-1\",\"namespace\":\"ns\",\"annotations\":{\"version\":\"v1.0\"}}},{" +
+		"\"metadata\":{\"name\":\"api-1\",\"namespace\":\"ns\",\"annotations\":{\"version\":\"v2.0\"}}}]}"
+	fr.outputs["get pods -o json"] = json
+	// annotation OR within same key: version=v1.* OR version=v2.*
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob}
+	af1, _ := parseLabelKV("version=v1.*", LabelGlob)
+	af2, _ := parseLabelKV("version=v2.*", LabelGlob)
+	opts.AnnotationFilters = []LabelFilter{af1, af2}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Should include both names across batched get calls
+	hasWeb := false
+	hasApi := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " web-1 ") {
+				hasWeb = true
+			}
+			if strings.Contains(joined, " api-1 ") {
+				hasApi = true
+			}
+		}
+	}
+	if !hasWeb || !hasApi {
+		t.Fatalf("annotation OR failed; calls=%v", fr.calls)
+	}
+}
+
+func TestAnnotationKeyRegex(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// One item with annotation key matching regex, one without
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"web-1\",\"namespace\":\"ns\",\"annotations\":{\"deployment.kubernetes.io/revision\":\"1\"}}},{" +
+		"\"metadata\":{\"name\":\"api-1\",\"namespace\":\"ns\",\"annotations\":{\"app\":\"api\"}}}]}"
+	fr.outputs["get pods -o json"] = json
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob}
+	opts.AnnotationKeyRegex = []string{"^deployment\\."}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Should only include web-1 (has deployment.* annotation key)
+	hasWeb := false
+	hasApi := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " web-1 ") {
+				hasWeb = true
+			}
+			if strings.Contains(joined, " api-1 ") {
+				hasApi = true
+			}
+		}
+	}
+	if !hasWeb || hasApi {
+		t.Fatalf("annotation key regex failed; hasWeb=%v hasApi=%v calls=%v", hasWeb, hasApi, fr.calls)
 	}
 }
 
@@ -793,11 +936,13 @@ func TestRoutes_AllNamespaces_SingleTable(t *testing.T) {
 }
 
 func TestClusterScoped_IgnoresAllNamespaces(t *testing.T) {
+    clearResourceCaches()
     // Simulate cluster-scoped resource like nodes
     fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
     // api-resources responses
     fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\nservices\n"
     fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\ncustomresourcedefinitions.apiextensions.k8s.io\n"
+    fr.outputs["api-resources --verbs=list"] = "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS\npods                              po           core           true         Pod          [list get]\nservices                         svc          core           true         Service      [list get]\nnodes                                           	             false        Node         [list get]\ncustomresourcedefinitions         crd,crds     apiextensions.k8s.io false        CustomResourceDefinition [list get]\n"
     // discovery for nodes should NOT include -A
     fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
     opts := CLIOptions{Verb: VerbGet, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
@@ -893,7 +1038,7 @@ func TestMatcher_NamespaceAllowed_ExactAndRegex(t *testing.T) {
     if !m.NamespaceAllowed("dev") || m.NamespaceAllowed("prod") {
         t.Fatal("NsExact failed")
     }
-    m = Matcher{NsRegex: []string{"^prod-.*$"}}
+    m = Matcher{NsRegex: []*regexp.Regexp{regexp.MustCompile("^prod-.*$")}}
     if !m.NamespaceAllowed("prod-a") || m.NamespaceAllowed("dev") {
         t.Fatal("NsRegex failed")
     }
@@ -1000,10 +1145,12 @@ func TestEnsureAllNamespacesFlag_AddsWhenMissing(t *testing.T) {
 }
 
 func TestDescribeClusterScoped_AllNamespaces_NoNamespaceFlag(t *testing.T) {
+    clearResourceCaches()
     fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
     // api-resources: nodes cluster-scoped
     fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\n"
     fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\n"
+    fr.outputs["api-resources --verbs=list"] = "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS\npods                              po           core           true         Pod          [list get]\nnodes                                           	             false        Node         [list get]\n"
     // discovery
     fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
     opts := CLIOptions{Verb: VerbDescribe, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}

@@ -1,5 +1,58 @@
 # Krew PR History and Templates
 
+## v1.0.8 (kubectl-wild)
+
+- Summary:
+  - New `top` verb for resource usage metrics (pods/nodes)
+  - Annotation filtering (mirrors label filtering)
+  - Performance optimizations: regex pre-compilation, lazy nsname computation
+
+- PR body template:
+
+```
+Title: Update plugin: wild (v1.0.8)
+
+This updates `wild` – a kubectl plugin for wildcard-friendly operations (get/describe/delete/top).
+
+Highlights:
+- Glob, regex, contains, prefix, and fuzzy matching (handles hashed names)
+- Namespace filters: --ns/--ns-prefix/--ns-regex, wildcard `-n "prod-*"`, and equals form `-n=prod-*`
+- Labels: value globs/prefix/contains/regex; key presence via --label-key-regex
+- Annotations: value globs/prefix/contains/regex; key presence via --annotation-key-regex
+- Group-by label: --group-by-label <key> (adds -L column), optional --colorize-labels summary
+- Nodes: --node/--node-prefix/--node-regex
+- Pod health: --restarts (>N, >=N, <N, <=N, =N), --containers-not-ready
+- Reasons: --reason OOMKilled|CrashLoopBackOff (optionally --container-name <name>)
+- Resource usage: `top` verb for pods/nodes (CPU/memory metrics)
+- Safe deletes: bright red previews, --dry-run/--server-dry-run, --confirm-threshold, -y
+- Native output: single kubectl table with NAMESPACE column for -A
+- Dynamic CRD canonicalization and cluster-scope handling
+- OpenShift support via WILD_KUBECTL=oc (including `oc adm top` for top verb)
+- Performance optimizations: regex pre-compilation, lazy string operations
+
+Changelog v1.0.8:
+- New `top` verb: `kubectl wild top pods|nodes` for resource usage metrics
+- Annotation filtering: --annotation, --annotation-prefix, --annotation-contains, --annotation-regex, --annotation-key-regex
+- Performance: regex patterns pre-compiled once per query instead of per-resource
+- Performance: lazy nsname computation (only when needed)
+- Performance: optimized Matches call order to avoid unnecessary checks
+- OpenShift: `top` verb automatically uses `oc adm top` when WILD_KUBECTL=oc
+
+Manifest:
+- `krew/wild.yaml` generated via CI with SHA256 for darwin/linux/windows (amd64/arm64)
+- URIs point to GitHub release assets for v1.0.8
+
+Checklist:
+- [x] `kubectl krew` validate (locally)
+- [x] SHA256s computed
+- [x] Tested on macOS and Linux
+- [x] Tested with OpenShift (oc adm top)
+```
+
+---
+
+Note: When opening the PR, attach the `krew/wild.yaml` from the v1.0.8 release workflow output.
+
 ## v1.0.7 (kubectl-wild)
 
 - Summary:

@@ -4,6 +4,20 @@
 
 # Changelog
 
+## v1.0.8
+- New `top` verb: `kubectl wild top pods|nodes` for resource usage metrics (CPU/memory)
+  - Supports pods and nodes resources only
+  - OpenShift compatibility: automatically uses `oc adm top` when `WILD_KUBECTL=oc` is set
+  - Handles `kubectl top` limitations: multiple pod matches show all pods in namespace
+- Annotation filtering: mirror of label filtering functionality
+  - `--annotation key=glob`, `--annotation-prefix key=prefix`, `--annotation-contains key=sub`, `--annotation-regex key=regex`
+  - `--annotation-key-regex regex` for filtering by annotation key presence
+  - AND logic across different keys, OR logic across multiple filters of the same key
+- Performance optimizations:
+  - Regex pre-compilation: regex patterns compiled once per query instead of per-resource check
+  - Lazy nsname computation: namespace/name string only computed when needed
+  - Optimized Matches call order: check name match first, avoid unnecessary nsname checks
+
 ## v1.0.7
 - Removed hardcoded resource normalization; fully dynamic resolution via `kubectl api-resources`
 - Passthrough optimization: resources already in canonical form (with dots) skip discovery when no filtering needed

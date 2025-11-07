@@ -15,6 +15,7 @@ type NameRef struct {
 	PodReasons         []string
 	PodPhase           string
 	Labels             map[string]string
+	Annotations        map[string]string
 	NodeName           string
 	TotalRestarts      int
 	NotReadyContainers int
@@ -30,13 +31,17 @@ type Matcher struct {
 	// Namespace filters
 	NsExact  []string
 	NsPrefix []string
-	NsRegex  []string
+	NsRegex  []*regexp.Regexp // Pre-compiled regexes
 	// Fuzzy
 	FuzzyMaxDistance int
 
 	// Label filters
-	LabelFilters  []LabelFilter
-	LabelKeyRegex []string
+	LabelFilters     []LabelFilter
+	LabelKeyRegex    []*regexp.Regexp // Pre-compiled regexes
+
+	// Annotation filters (reuse LabelFilter type)
+	AnnotationFilters  []LabelFilter
+	AnnotationKeyRegex []*regexp.Regexp // Pre-compiled regexes
 }
 
 type LabelMode int
@@ -110,10 +115,55 @@ func (m Matcher) LabelsAllowed(labels map[string]string) bool {
 		}
 	}
 	// Key-regex presence checks (AND across regexes)
-	for _, reStr := range m.LabelKeyRegex {
-		re := regexp.MustCompile(reStr)
+	for _, re := range m.LabelKeyRegex {
 		found := false
 		for k := range labels {
+			if re.MatchString(k) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// AnnotationsAllowed applies AND across different keys, and OR across multiple filters of the same key.
+// Same logic as LabelsAllowed but for annotations.
+func (m Matcher) AnnotationsAllowed(annotations map[string]string) bool {
+	if len(m.AnnotationFilters) == 0 {
+		// If there are key-regex filters, require presence of at least one matching key per regex
+		if len(m.AnnotationKeyRegex) == 0 {
+			return true
+		}
+	}
+	// group filters by key
+	byKey := map[string][]LabelFilter{}
+	for _, af := range m.AnnotationFilters {
+		byKey[af.Key] = append(byKey[af.Key], af)
+	}
+	for key, fls := range byKey {
+		val, ok := annotations[key]
+		if !ok {
+			return false
+		}
+		matchedAny := false
+		for _, f := range fls {
+			if labelValueMatches(val, f) {
+				matchedAny = true
+				break
+			}
+		}
+		if !matchedAny {
+			return false
+		}
+	}
+	// Key-regex presence checks (AND across regexes)
+	for _, re := range m.AnnotationKeyRegex {
+		found := false
+		for k := range annotations {
 			if re.MatchString(k) {
 				found = true
 				break
@@ -171,8 +221,7 @@ func (m Matcher) NamespaceAllowed(ns string) bool {
 		}
 	}
 	for _, re := range m.NsRegex {
-		r := regexp.MustCompile(re)
-		if r.MatchString(ns) {
+		if re.MatchString(ns) {
 			return true
 		}
 	}

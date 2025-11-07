@@ -124,6 +124,7 @@ func runCommand(runner Runner, opts CLIOptions) error {
     hasFilters := len(opts.Exclude) > 0 ||
         len(opts.NsExact) > 0 || len(opts.NsPrefix) > 0 || len(opts.NsRegex) > 0 ||
         len(opts.LabelFilters) > 0 || len(opts.LabelKeyRegex) > 0 ||
+        len(opts.AnnotationFilters) > 0 || len(opts.AnnotationKeyRegex) > 0 ||
         len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(opts.NodeRegex) > 0 ||
         opts.OlderThan > 0 || opts.YoungerThan > 0 ||
         len(opts.PodStatuses) > 0 || opts.Unhealthy ||
@@ -180,13 +181,33 @@ func runCommand(runner Runner, opts CLIOptions) error {
 		}
 	}
 	// Build list of target names (either name or ns/name when -A)
+	// Pre-compile regexes for performance
+	nsRegexes := make([]*regexp.Regexp, 0, len(opts.NsRegex))
+	for _, reStr := range opts.NsRegex {
+		nsRegexes = append(nsRegexes, regexp.MustCompile(reStr))
+	}
+	labelKeyRegexes := make([]*regexp.Regexp, 0, len(opts.LabelKeyRegex))
+	for _, reStr := range opts.LabelKeyRegex {
+		labelKeyRegexes = append(labelKeyRegexes, regexp.MustCompile(reStr))
+	}
+	annotationKeyRegexes := make([]*regexp.Regexp, 0, len(opts.AnnotationKeyRegex))
+	for _, reStr := range opts.AnnotationKeyRegex {
+		annotationKeyRegexes = append(annotationKeyRegexes, regexp.MustCompile(reStr))
+	}
 	matcher := Matcher{Mode: opts.Mode, Includes: opts.Include, Excludes: opts.Exclude, IgnoreCase: opts.IgnoreCase,
-		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: opts.NsRegex, FuzzyMaxDistance: opts.FuzzyMaxDistance,
-		LabelFilters: opts.LabelFilters, LabelKeyRegex: opts.LabelKeyRegex}
+		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: nsRegexes, FuzzyMaxDistance: opts.FuzzyMaxDistance,
+		LabelFilters: opts.LabelFilters, LabelKeyRegex: labelKeyRegexes,
+		AnnotationFilters: opts.AnnotationFilters, AnnotationKeyRegex: annotationKeyRegexes}
 	var matched []matchedRef
 	for _, r := range refs {
-		nsname := r.Namespace + "/" + r.Name
-		if (matcher.Matches(r.Name) || matcher.Matches(nsname)) && matcher.NamespaceAllowed(r.Namespace) && matcher.LabelsAllowed(r.Labels) {
+		// Optimize: check name match first, only compute nsname if needed
+		nameMatches := matcher.Matches(r.Name)
+		if !nameMatches && opts.AllNamespaces {
+			// Only compute nsname if we're doing all-namespaces matching
+			nsname := r.Namespace + "/" + r.Name
+			nameMatches = matcher.Matches(nsname)
+		}
+		if nameMatches && matcher.NamespaceAllowed(r.Namespace) && matcher.LabelsAllowed(r.Labels) && matcher.AnnotationsAllowed(r.Annotations) {
 			// Age filters
 			if opts.OlderThan > 0 || opts.YoungerThan > 0 {
 				age := time.Since(r.CreatedAt)
@@ -314,6 +335,8 @@ func runCommand(runner Runner, opts CLIOptions) error {
 		return runVerbPerScope(runner, "get", opts, matched)
 	case VerbDescribe:
 		return runVerbPerScope(runner, "describe", opts, matched)
+	case VerbTop:
+		return runTopVerb(runner, opts, matched)
 	case VerbDelete:
 		// Safety: confirm threshold BEFORE any interactive prompt
 		if opts.ConfirmThreshold > 0 && len(matched) > opts.ConfirmThreshold && !opts.Yes {
@@ -531,6 +554,73 @@ func stripNamespaceFlag(flags []string) []string {
 		out = append(out, f)
 	}
 	return out
+}
+
+// runTopVerb handles kubectl top command (pods/nodes)
+func runTopVerb(runner Runner, opts CLIOptions, matched []matchedRef) error {
+	// Map resource to kubectl top subcommand
+	resourceLower := strings.ToLower(opts.Resource)
+	var topSubcommand string
+	switch resourceLower {
+	case "pod", "pods", "po":
+		topSubcommand = "pods"
+	case "node", "nodes", "no":
+		topSubcommand = "nodes"
+	default:
+		return fmt.Errorf("kubectl top only supports pods and nodes, got: %s", opts.Resource)
+	}
+	
+	// Build targets and flags
+	var targets []string
+	for _, m := range matched {
+		targets = append(targets, m.name)
+	}
+	
+	finalFlags := opts.FinalFlags
+	// For pods, handle namespace scoping
+	// Note: kubectl top pods with -n doesn't accept multiple pod names,
+	// so if we have multiple targets, we need to call without pod names
+	// and let kubectl show all pods in the namespace (we've already filtered)
+	if topSubcommand == "pods" {
+		if opts.AllNamespaces {
+			finalFlags = append([]string{"-A"}, stripNamespaceFlag(finalFlags)...)
+			// With -A, don't pass pod names (kubectl shows all)
+			targets = []string{}
+		} else if opts.Namespace != "" {
+			finalFlags = append([]string{"-n", opts.Namespace}, stripNamespaceFlag(finalFlags)...)
+			// With -n and multiple pods, kubectl top doesn't accept pod names
+			// If we have exactly one pod, we can pass it; otherwise show all in namespace
+			if len(targets) != 1 {
+				targets = []string{}
+			}
+		}
+	}
+	// For nodes, remove any namespace flags (cluster-scoped)
+	if topSubcommand == "nodes" {
+		finalFlags = stripAllNamespacesFlag(stripNamespaceFlag(finalFlags))
+		// kubectl top nodes can accept multiple node names
+	}
+	
+	// Call kubectl top <subcommand> <targets...>
+	// For oc, use "adm top" instead of "top"
+	bin := os.Getenv("WILD_KUBECTL")
+	if bin == "" {
+		bin = os.Getenv("KUBECTL")
+	}
+	if bin == "" {
+		bin = "kubectl"
+	}
+	var args []string
+	if bin == "oc" {
+		// oc uses "adm top" instead of "top"
+		args = []string{"adm", "top", topSubcommand}
+	} else {
+		args = []string{"top", topSubcommand}
+	}
+	args = append(args, targets...)
+	args = append(args, finalFlags...)
+	args = append(args, opts.ExtraFinal...)
+	return runner.RunKubectl(args)
 }
 
 func runVerbPerScope(runner Runner, verb string, opts CLIOptions, matched []matchedRef) error {

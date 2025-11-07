@@ -49,6 +49,12 @@ func (ExecRunner) CaptureKubectl(args []string) ([]byte, []byte, error) {
 var resourceScopeCache = map[string]bool{}
 var resourceCanonicalCache = map[string]string{}
 
+// clearResourceCaches clears the resource caches (for testing)
+func clearResourceCaches() {
+	resourceScopeCache = map[string]bool{}
+	resourceCanonicalCache = map[string]string{}
+}
+
 // isResourceNamespaced determines if a given resource name (e.g., "pods", "bgppeers" or
 // "bgppeers.metallb.io") is namespaced by consulting `kubectl api-resources`.
 // Returns true if namespaced, false if cluster-scoped. If detection fails, defaults to true.
@@ -227,6 +233,7 @@ type K8sListPartial struct {
 			Namespace         string            `json:"namespace"`
 			CreationTimestamp string            `json:"creationTimestamp"`
 			Labels            map[string]string `json:"labels"`
+			Annotations       map[string]string `json:"annotations"`
 			OwnerReferences   []struct {
 				Kind string `json:"kind"`
 				Name string `json:"name"`
@@ -332,6 +339,7 @@ func discoverNames(runner Runner, resource string, discoveryFlags []string) ([]N
 			PodReasons:         reasons,
 			PodPhase:           phase,
 			Labels:             it.Metadata.Labels,
+			Annotations:        it.Metadata.Annotations,
 			NodeName:           nodeName,
 			TotalRestarts:      totalRestarts,
 			NotReadyContainers: notReady,

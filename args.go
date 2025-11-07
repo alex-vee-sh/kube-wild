@@ -13,6 +13,7 @@ const (
 	VerbGet      Verb = "get"
 	VerbDelete   Verb = "delete"
 	VerbDescribe Verb = "describe"
+	VerbTop      Verb = "top"
 )
 
 type MatchMode int
@@ -60,6 +61,10 @@ type CLIOptions struct {
 	// Label key presence by regex
 	LabelKeyRegex []string
 
+	// Annotation filtering
+	AnnotationFilters  []LabelFilter
+	AnnotationKeyRegex  []string
+
 	// Node filters
 	NodeExact  []string
 	NodePrefix []string
@@ -103,7 +108,7 @@ func parseArgs(argv []string) (CLIOptions, error) {
 	opts := defaultCLIOptions()
 	opts.Verb = Verb(argv[0])
 	switch opts.Verb {
-	case VerbGet, VerbDelete, VerbDescribe:
+	case VerbGet, VerbDelete, VerbDescribe, VerbTop:
 	default:
 		return opts, fmt.Errorf("unknown verb: %s", argv[0])
 	}
@@ -364,6 +369,61 @@ func parseArgs(argv []string) (CLIOptions, error) {
 				return opts, fmt.Errorf("--label-key-regex requires a regex")
 			}
 			opts.LabelKeyRegex = append(opts.LabelKeyRegex, flags[i+1])
+			i++
+			continue
+		case "--annotation":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--annotation requires key=pattern")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelGlob)
+			if err != nil {
+				return opts, fmt.Errorf("--annotation requires key=pattern")
+			}
+			opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+			continue
+		case "--annotation-prefix":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--annotation-prefix requires key=prefix")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelPrefix)
+			if err != nil {
+				return opts, fmt.Errorf("--annotation-prefix requires key=prefix")
+			}
+			opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+			continue
+		case "--annotation-contains":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--annotation-contains requires key=substr")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelContains)
+			if err != nil {
+				return opts, fmt.Errorf("--annotation-contains requires key=substr")
+			}
+			opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+			continue
+		case "--annotation-regex":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--annotation-regex requires key=regex")
+			}
+			kv := flags[i+1]
+			i++
+			lf, err := parseLabelKV(kv, LabelRegex)
+			if err != nil {
+				return opts, fmt.Errorf("--annotation-regex requires key=regex")
+			}
+			opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+			continue
+		case "--annotation-key-regex":
+			if i+1 >= len(flags) {
+				return opts, fmt.Errorf("--annotation-key-regex requires a regex")
+			}
+			opts.AnnotationKeyRegex = append(opts.AnnotationKeyRegex, flags[i+1])
 			i++
 			continue
 		case "--node":

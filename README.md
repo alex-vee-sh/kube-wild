@@ -1,7 +1,7 @@
 kubectl-wild
 ============
 
-Wildcard-friendly wrapper for common kubectl commands (get, describe, delete). Installed as a kubectl plugin `kubectl-wild` and invoked as `kubectl wild ...`.
+Wildcard-friendly wrapper for common kubectl commands (get, describe, delete, top). Installed as a kubectl plugin `kubectl-wild` and invoked as `kubectl wild ...`.
 
 Why
 ---
@@ -51,7 +51,7 @@ kubectl wild --help
 Usage
 -----
 
-`kubectl wild (get|delete|describe) [resource] [pattern] [flags...] [-- extra]`
+`kubectl wild (get|delete|describe|top) [resource] [pattern] [flags...] [-- extra]`
 
 Always quote your patterns to prevent your shell from expanding them.
 
@@ -62,6 +62,7 @@ Key flags:
 - Safety: `--dry-run` | `--server-dry-run` | `--confirm-threshold N` | `--yes/-y` | `--preview [list|table]` | `--no-color`
 - Pod filters: `--older-than DURATION` | `--younger-than DURATION` | `--pod-status STATUS` | `--unhealthy`
 - Label filters: `--label key=glob` | `--label-prefix key=prefix` | `--label-contains key=sub` | `--label-regex key=regex` | `--label-key-regex regex`
+- Annotation filters: `--annotation key=glob` | `--annotation-prefix key=prefix` | `--annotation-contains key=sub` | `--annotation-regex key=regex` | `--annotation-key-regex regex`
 - Grouping: `--group-by-label key` (adds `-L key` to kubectl table) | `--colorize-labels`
 - Node/container filters: `--node NAME` | `--node-prefix PFX` | `--node-regex RE` | `--restarts EXPR` (`>N`, `>=N`, `<N`, `<=N`, `=N`) | `--containers-not-ready` | `--reason REASON` | `--container-name NAME`
 - Output: `--output json`
@@ -108,18 +109,31 @@ kubectl wild get pods -A --label-key-regex '^app$' --group-by-label app
 # Add a colored summary above the table (optional)
 kubectl wild get pods -A --label 'app=*' --group-by-label app --colorize-labels
 
+# Annotation filters
+kubectl wild get pods -A --annotation 'version=v1.*'
+kubectl wild get pods -A --annotation-prefix 'deployment.kubernetes.io/revision='
+kubectl wild get pods -A --annotation-contains 'description=production'
+kubectl wild get pods -A --annotation-regex 'version=v[0-9]+'
+kubectl wild get pods -A --annotation-key-regex '^deployment\\.kubernetes\\.io/'
+
 # Node and container health filters
 kubectl wild get pods -A --node-prefix worker-
 kubectl wild get pods -A --restarts '>0'
 kubectl wild get pods -A --containers-not-ready
 kubectl wild get pods -A --reason CrashLoopBackOff
 kubectl wild get pods -A --reason OOMKilled --container-name app
+
+# Resource usage (top) - supports pods and nodes
+kubectl wild top pods 'api-*' -n prod
+kubectl wild top nodes 'worker-*'
+kubectl wild top pods -A --containers 'high-cpu-*'
 ```
 
 - Flags after the pattern are passed through to `kubectl` (e.g., `-n`, `-A`, `-l`).
 - For `get`, output is rendered as a single kubectl table; with `-A` the NAMESPACE column is included, like kubectl.
 - For `describe`, the plugin runs `kubectl describe` on the matched set.
 - For `delete`, the plugin previews matches and always asks for confirmation (`y/N`). The prompt is bright red by default to prevent accidents.
+- For `top`, the plugin runs `kubectl top` on matched pods or nodes. Only `pods` and `nodes` resources are supported. Flags like `--containers` are passed through to `kubectl top`.
 
 Dynamic CRD support
 -------------------
