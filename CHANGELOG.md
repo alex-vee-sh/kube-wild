@@ -4,6 +4,21 @@
 
 # Changelog
 
+## v1.0.9
+- Performance optimizations:
+  - Pre-compile regex patterns for include/exclude filters when using `--regex` mode
+  - Pre-compile regex patterns for label and annotation regex filters (`--label-regex`, `--annotation-regex`)
+  - Pre-compile node regex filters (`--node-regex`) for faster node filtering
+  - All regex patterns compiled once per query instead of per-resource check
+- Stability improvements:
+  - Improved error handling for time parsing in resource discovery (invalid timestamps handled gracefully)
+- Test coverage improvements:
+  - Added comprehensive tests for `labelValueMatches` (all label modes: glob, prefix, contains, regex)
+  - Added tests for `containsFlag` and `containsFlagWithPrefix` functions
+  - Added tests for `runVerbPassthrough` optimization path
+  - Added tests for `matchSingle` function (all match modes)
+  - Overall test coverage increased from 60.8% to 63.1%
+
 ## v1.0.8
 - New `top` verb: `kubectl wild top pods|nodes` for resource usage metrics (CPU/memory)
   - Supports pods and nodes resources only

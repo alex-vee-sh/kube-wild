@@ -286,8 +286,12 @@ func discoverNames(runner Runner, resource string, discoveryFlags []string) ([]N
 	for _, it := range list.Items {
 		var created time.Time
 		if it.Metadata.CreationTimestamp != "" {
-			t, _ := time.Parse(time.RFC3339, it.Metadata.CreationTimestamp)
-			created = t
+			if t, err := time.Parse(time.RFC3339, it.Metadata.CreationTimestamp); err == nil {
+				created = t
+			}
+			// If parsing fails, created remains zero time, which will cause age filters
+			// to potentially exclude the resource (age will be very large). This is safer
+			// than including resources with invalid timestamps.
 		}
 		var reasons []string
 		var phase string

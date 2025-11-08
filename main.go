@@ -194,10 +194,63 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	for _, reStr := range opts.AnnotationKeyRegex {
 		annotationKeyRegexes = append(annotationKeyRegexes, regexp.MustCompile(reStr))
 	}
-	matcher := Matcher{Mode: opts.Mode, Includes: opts.Include, Excludes: opts.Exclude, IgnoreCase: opts.IgnoreCase,
-		NsExact: opts.NsExact, NsPrefix: opts.NsPrefix, NsRegex: nsRegexes, FuzzyMaxDistance: opts.FuzzyMaxDistance,
-		LabelFilters: opts.LabelFilters, LabelKeyRegex: labelKeyRegexes,
-		AnnotationFilters: opts.AnnotationFilters, AnnotationKeyRegex: annotationKeyRegexes}
+	// Pre-compile node regexes
+	nodeRegexes := make([]*regexp.Regexp, 0, len(opts.NodeRegex))
+	for _, reStr := range opts.NodeRegex {
+		nodeRegexes = append(nodeRegexes, regexp.MustCompile(reStr))
+	}
+	// Pre-compile include/exclude regexes when in regex mode
+	var includeRegexes []*regexp.Regexp
+	var excludeRegexes []*regexp.Regexp
+	if opts.Mode == MatchRegex {
+		includeRegexes = make([]*regexp.Regexp, 0, len(opts.Include))
+		for _, pattern := range opts.Include {
+			if opts.IgnoreCase {
+				includeRegexes = append(includeRegexes, regexp.MustCompile("(?i)"+pattern))
+			} else {
+				includeRegexes = append(includeRegexes, regexp.MustCompile(pattern))
+			}
+		}
+		excludeRegexes = make([]*regexp.Regexp, 0, len(opts.Exclude))
+		for _, pattern := range opts.Exclude {
+			if opts.IgnoreCase {
+				excludeRegexes = append(excludeRegexes, regexp.MustCompile("(?i)"+pattern))
+			} else {
+				excludeRegexes = append(excludeRegexes, regexp.MustCompile(pattern))
+			}
+		}
+	}
+	// Pre-compile label/annotation regex filters
+	labelFilters := make([]LabelFilter, len(opts.LabelFilters))
+	for i, lf := range opts.LabelFilters {
+		labelFilters[i] = lf
+		if lf.Mode == LabelRegex {
+			labelFilters[i].CompiledRegex = regexp.MustCompile(lf.Pattern)
+		}
+	}
+	annotationFilters := make([]LabelFilter, len(opts.AnnotationFilters))
+	for i, af := range opts.AnnotationFilters {
+		annotationFilters[i] = af
+		if af.Mode == LabelRegex {
+			annotationFilters[i].CompiledRegex = regexp.MustCompile(af.Pattern)
+		}
+	}
+	matcher := Matcher{
+		Mode:              opts.Mode,
+		Includes:          opts.Include,
+		Excludes:          opts.Exclude,
+		IgnoreCase:         opts.IgnoreCase,
+		IncludeRegexes:     includeRegexes,
+		ExcludeRegexes:     excludeRegexes,
+		NsExact:            opts.NsExact,
+		NsPrefix:           opts.NsPrefix,
+		NsRegex:            nsRegexes,
+		FuzzyMaxDistance:   opts.FuzzyMaxDistance,
+		LabelFilters:       labelFilters,
+		LabelKeyRegex:      labelKeyRegexes,
+		AnnotationFilters:  annotationFilters,
+		AnnotationKeyRegex: annotationKeyRegexes,
+	}
 	var matched []matchedRef
 	for _, r := range refs {
 		// Optimize: check name match first, only compute nsname if needed
@@ -219,8 +272,8 @@ func runCommand(runner Runner, opts CLIOptions) error {
 				}
 			}
 			// Node filters
-			if len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(opts.NodeRegex) > 0 {
-				if !nodeAllowed(r.NodeName, opts) {
+			if len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(nodeRegexes) > 0 {
+				if !nodeAllowed(r.NodeName, opts.NodeExact, opts.NodePrefix, nodeRegexes) {
 					continue
 				}
 			}
@@ -388,31 +441,26 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	}
 }
 
-func nodeAllowed(node string, opts CLIOptions) bool {
-	if len(opts.NodeExact) == 0 && len(opts.NodePrefix) == 0 && len(opts.NodeRegex) == 0 {
+func nodeAllowed(node string, nodeExact []string, nodePrefix []string, nodeRegexes []*regexp.Regexp) bool {
+	if len(nodeExact) == 0 && len(nodePrefix) == 0 && len(nodeRegexes) == 0 {
 		return true
 	}
-	for _, n := range opts.NodeExact {
+	for _, n := range nodeExact {
 		if node == n {
 			return true
 		}
 	}
-	for _, p := range opts.NodePrefix {
+	for _, p := range nodePrefix {
 		if strings.HasPrefix(node, p) {
 			return true
 		}
 	}
-	for _, re := range opts.NodeRegex {
-		if regexpMust(re).MatchString(node) {
+	for _, re := range nodeRegexes {
+		if re.MatchString(node) {
 			return true
 		}
 	}
 	return false
-}
-
-func regexpMust(s string) *regexp.Regexp {
-	// safe helper without reusing packages around
-	return regexp.MustCompile(s)
 }
 
 func compareIntExpr(val int, expr string) bool {

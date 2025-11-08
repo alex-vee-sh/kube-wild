@@ -804,6 +804,149 @@ func TestLabelKeyRegex_Presence(t *testing.T) {
 	}
 }
 
+func TestLabelValueMatches_AllModes(t *testing.T) {
+	// Test LabelGlob mode
+	lfGlob, _ := parseLabelKV("app=web-*", LabelGlob)
+	if !labelValueMatches("web-1", lfGlob) {
+		t.Error("LabelGlob: web-1 should match web-*")
+	}
+	if labelValueMatches("api-1", lfGlob) {
+		t.Error("LabelGlob: api-1 should not match web-*")
+	}
+
+	// Test LabelPrefix mode
+	lfPrefix, _ := parseLabelKV("version=v1.", LabelPrefix)
+	if !labelValueMatches("v1.0", lfPrefix) {
+		t.Error("LabelPrefix: v1.0 should match v1. prefix")
+	}
+	if labelValueMatches("v2.0", lfPrefix) {
+		t.Error("LabelPrefix: v2.0 should not match v1. prefix")
+	}
+
+	// Test LabelContains mode
+	lfContains, _ := parseLabelKV("env=prod", LabelContains)
+	if !labelValueMatches("prod-env", lfContains) {
+		t.Error("LabelContains: prod-env should contain prod")
+	}
+	if !labelValueMatches("env-prod", lfContains) {
+		t.Error("LabelContains: env-prod should contain prod")
+	}
+	if labelValueMatches("dev-env", lfContains) {
+		t.Error("LabelContains: dev-env should not contain prod")
+	}
+
+	// Test LabelRegex mode with pre-compiled regex
+	lfRegex, _ := parseLabelKV("version=v[0-9]+", LabelRegex)
+	lfRegex.CompiledRegex = regexp.MustCompile(lfRegex.Pattern)
+	if !labelValueMatches("v1", lfRegex) {
+		t.Error("LabelRegex: v1 should match v[0-9]+")
+	}
+	if !labelValueMatches("v123", lfRegex) {
+		t.Error("LabelRegex: v123 should match v[0-9]+")
+	}
+	if labelValueMatches("vabc", lfRegex) {
+		t.Error("LabelRegex: vabc should not match v[0-9]+")
+	}
+
+	// Test LabelRegex mode fallback (without CompiledRegex)
+	lfRegexFallback, _ := parseLabelKV("version=v[0-9]+", LabelRegex)
+	lfRegexFallback.CompiledRegex = nil // Force fallback path
+	if !labelValueMatches("v1", lfRegexFallback) {
+		t.Error("LabelRegex fallback: v1 should match v[0-9]+")
+	}
+	if labelValueMatches("vabc", lfRegexFallback) {
+		t.Error("LabelRegex fallback: vabc should not match v[0-9]+")
+	}
+
+	// Test default case (should use glob)
+	lfDefault := LabelFilter{Key: "app", Pattern: "web-*", Mode: LabelMode(999)} // Invalid mode
+	if !labelValueMatches("web-1", lfDefault) {
+		t.Error("Default mode: web-1 should match web-* (fallback to glob)")
+	}
+}
+
+func TestLabelFilters_PrefixContainsRegex(t *testing.T) {
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"web-1\",\"namespace\":\"ns\",\"labels\":{\"version\":\"v1.0\",\"env\":\"prod-env\"}}},{" +
+		"\"metadata\":{\"name\":\"api-1\",\"namespace\":\"ns\",\"labels\":{\"version\":\"v2.0\",\"env\":\"dev-env\"}}}]}"
+	fr.outputs["get pods -o json"] = json
+
+	// Test LabelPrefix
+	opts := CLIOptions{Verb: VerbGet, Resource: "pods", Include: []string{"*"}, Mode: MatchGlob}
+	lfPrefix, _ := parseLabelKV("version=v1.", LabelPrefix)
+	opts.LabelFilters = []LabelFilter{lfPrefix}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	hasWeb := false
+	hasApi := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " web-1 ") {
+				hasWeb = true
+			}
+			if strings.Contains(joined, " api-1 ") {
+				hasApi = true
+			}
+		}
+	}
+	if !hasWeb || hasApi {
+		t.Fatalf("LabelPrefix filter failed; hasWeb=%v hasApi=%v", hasWeb, hasApi)
+	}
+
+	// Test LabelContains
+	fr.calls = [][]string{}
+	opts.LabelFilters = nil
+	lfContains, _ := parseLabelKV("env=prod", LabelContains)
+	opts.LabelFilters = []LabelFilter{lfContains}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	hasWeb = false
+	hasApi = false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " web-1 ") {
+				hasWeb = true
+			}
+			if strings.Contains(joined, " api-1 ") {
+				hasApi = true
+			}
+		}
+	}
+	if !hasWeb || hasApi {
+		t.Fatalf("LabelContains filter failed; hasWeb=%v hasApi=%v", hasWeb, hasApi)
+	}
+
+	// Test LabelRegex
+	fr.calls = [][]string{}
+	opts.LabelFilters = nil
+	lfRegex, _ := parseLabelKV("version=v[0-9]+", LabelRegex)
+	opts.LabelFilters = []LabelFilter{lfRegex}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	hasWeb = false
+	hasApi = false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "pods" {
+			joined := " " + strings.Join(c[2:], " ") + " "
+			if strings.Contains(joined, " web-1 ") {
+				hasWeb = true
+			}
+			if strings.Contains(joined, " api-1 ") {
+				hasApi = true
+			}
+		}
+	}
+	if !hasWeb || !hasApi {
+		t.Fatalf("LabelRegex filter failed; hasWeb=%v hasApi=%v (both should match v[0-9]+)", hasWeb, hasApi)
+	}
+}
+
 func TestAllNamespaces_TargetsNsName(t *testing.T) {
 	// craft discovery with namespaces
 	json := "{\"items\":[{" +
@@ -1108,12 +1251,15 @@ func TestCompareIntExpr_AllOps(t *testing.T) {
 }
 
 func TestNodeAllowed_ExactAndRegex(t *testing.T) {
-    opts := CLIOptions{NodeExact: []string{"n1"}}
-    if !nodeAllowed("n1", opts) || nodeAllowed("n2", opts) {
+    nodeExact := []string{"n1"}
+    nodePrefix := []string{}
+    nodeRegexes := []*regexp.Regexp{}
+    if !nodeAllowed("n1", nodeExact, nodePrefix, nodeRegexes) || nodeAllowed("n2", nodeExact, nodePrefix, nodeRegexes) {
         t.Fatal("exact node match failed")
     }
-    opts = CLIOptions{NodeRegex: []string{"^work-\\d+$"}}
-    if !nodeAllowed("work-1", opts) || nodeAllowed("x", opts) {
+    nodeExact = []string{}
+    nodeRegexes = []*regexp.Regexp{regexp.MustCompile("^work-\\d+$")}
+    if !nodeAllowed("work-1", nodeExact, nodePrefix, nodeRegexes) || nodeAllowed("x", nodeExact, nodePrefix, nodeRegexes) {
         t.Fatal("regex node match failed")
     }
 }
@@ -1235,6 +1381,164 @@ func TestEnsureAllNamespacesFlag_NoDuplicate(t *testing.T) {
     }
     if count != 1 {
         t.Fatalf("expected single -A, got %v", got)
+    }
+}
+
+func TestContainsFlag(t *testing.T) {
+    flags := []string{"-o", "wide", "-L", "app", "--no-headers"}
+    if !containsFlag(flags, "-L") {
+        t.Error("containsFlag: should find -L")
+    }
+    if !containsFlag(flags, "-o") {
+        t.Error("containsFlag: should find -o")
+    }
+    if containsFlag(flags, "-n") {
+        t.Error("containsFlag: should not find -n")
+    }
+    if containsFlag(flags, "nonexistent") {
+        t.Error("containsFlag: should not find nonexistent flag")
+    }
+    if containsFlag([]string{}, "-L") {
+        t.Error("containsFlag: should not find flag in empty slice")
+    }
+}
+
+func TestContainsFlagWithPrefix(t *testing.T) {
+    flags := []string{"-o=wide", "-L=app", "--output=json", "-n", "default"}
+    if !containsFlagWithPrefix(flags, "-L=") {
+        t.Error("containsFlagWithPrefix: should find -L=")
+    }
+    if !containsFlagWithPrefix(flags, "-o=") {
+        t.Error("containsFlagWithPrefix: should find -o=")
+    }
+    if !containsFlagWithPrefix(flags, "--output=") {
+        t.Error("containsFlagWithPrefix: should find --output=")
+    }
+    if containsFlagWithPrefix(flags, "-x=") {
+        t.Error("containsFlagWithPrefix: should not find -x=")
+    }
+    if containsFlagWithPrefix([]string{}, "-L=") {
+        t.Error("containsFlagWithPrefix: should not find prefix in empty slice")
+    }
+}
+
+func TestRunVerbPassthrough(t *testing.T) {
+    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+    
+    // Test basic passthrough
+    opts := CLIOptions{
+        Verb:         VerbGet,
+        Resource:     "pods",
+        DiscoveryFlags: []string{"-n", "default"},
+        FinalFlags:   []string{"-o", "wide"},
+        ExtraFinal:   []string{"--", "extra"},
+    }
+    if err := runVerbPassthrough(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    expected := []string{"get", "pods", "-n", "default", "-o", "wide", "--", "extra"}
+    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+        t.Fatalf("passthrough failed; got %v, expected %v", fr.calls, [][]string{expected})
+    }
+    
+    // Test with GroupByLabel
+    fr.calls = [][]string{}
+    opts.GroupByLabel = "app"
+    opts.FinalFlags = []string{"-o", "wide"}
+    if err := runVerbPassthrough(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    expected = []string{"get", "pods", "-L", "app", "-n", "default", "-o", "wide", "--", "extra"}
+    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+        t.Fatalf("passthrough with GroupByLabel failed; got %v, expected %v", fr.calls, [][]string{expected})
+    }
+    
+    // Test with GroupByLabel when -L already present
+    fr.calls = [][]string{}
+    opts.FinalFlags = []string{"-L", "env", "-o", "wide"}
+    if err := runVerbPassthrough(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    expected = []string{"get", "pods", "-n", "default", "-L", "env", "-o", "wide", "--", "extra"}
+    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+        t.Fatalf("passthrough with existing -L failed; got %v, expected %v", fr.calls, [][]string{expected})
+    }
+    
+    // Test with GroupByLabel when -L= already present
+    fr.calls = [][]string{}
+    opts.FinalFlags = []string{"-L=env", "-o", "wide"}
+    if err := runVerbPassthrough(fr, opts); err != nil {
+        t.Fatal(err)
+    }
+    expected = []string{"get", "pods", "-n", "default", "-L=env", "-o", "wide", "--", "extra"}
+    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+        t.Fatalf("passthrough with existing -L= failed; got %v, expected %v", fr.calls, [][]string{expected})
+    }
+}
+
+func equalSlices(a, b []string) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i := range a {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    return true
+}
+
+func TestMatchSingle_AllModes(t *testing.T) {
+    // Test MatchGlob
+    if !matchSingle(MatchGlob, false, "web-1", "web-*") {
+        t.Error("MatchGlob: web-1 should match web-*")
+    }
+    if matchSingle(MatchGlob, false, "api-1", "web-*") {
+        t.Error("MatchGlob: api-1 should not match web-*")
+    }
+    
+    // Test MatchGlob with ignoreCase (target should be lowercased before calling matchSingle)
+    if !matchSingle(MatchGlob, true, "web-1", "web-*") {
+        t.Error("MatchGlob ignoreCase: web-1 should match web-*")
+    }
+    
+    // Test MatchRegex
+    if !matchSingle(MatchRegex, false, "api-1", "^api-") {
+        t.Error("MatchRegex: api-1 should match ^api-")
+    }
+    if matchSingle(MatchRegex, false, "web-1", "^api-") {
+        t.Error("MatchRegex: web-1 should not match ^api-")
+    }
+    
+    // Test MatchRegex with ignoreCase (target should be lowercased before calling matchSingle)
+    if !matchSingle(MatchRegex, true, "api-1", "^api-") {
+        t.Error("MatchRegex ignoreCase: api-1 should match ^api-")
+    }
+    
+    // Test MatchContains
+    if !matchSingle(MatchContains, false, "api-1", "pi-") {
+        t.Error("MatchContains: api-1 should contain pi-")
+    }
+    if matchSingle(MatchContains, false, "web-1", "pi-") {
+        t.Error("MatchContains: web-1 should not contain pi-")
+    }
+    
+    // Test MatchContains with ignoreCase (target should be lowercased before calling matchSingle)
+    if !matchSingle(MatchContains, true, "api-1", "pi-") {
+        t.Error("MatchContains ignoreCase: api-1 should contain pi-")
+    }
+    
+    // Test MatchFuzzy
+    if !matchSingle(MatchFuzzy, false, "api-1", "apu-1") {
+        t.Error("MatchFuzzy: api-1 should fuzzy match apu-1")
+    }
+    if matchSingle(MatchFuzzy, false, "web-1", "apu-1") {
+        t.Error("MatchFuzzy: web-1 should not fuzzy match apu-1")
+    }
+    
+    // Test default case (should use glob)
+    if !matchSingle(MatchMode(999), false, "web-1", "web-*") {
+        t.Error("Default mode: should fallback to glob")
     }
 }
 

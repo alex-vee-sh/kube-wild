@@ -1,0 +1,2433 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>kubectl-wild: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/a13x22/kubectl-wild/args.go (33.9%)</option>
+				
+				<option value="file1">github.com/a13x22/kubectl-wild/main.go (64.8%)</option>
+				
+				<option value="file2">github.com/a13x22/kubectl-wild/match.go (84.0%)</option>
+				
+				<option value="file3">github.com/a13x22/kubectl-wild/runner.go (77.5%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package main
+
+import (
+    "fmt"
+    "strconv"
+    "strings"
+    "time"
+)
+
+type Verb string
+
+const (
+        VerbGet      Verb = "get"
+        VerbDelete   Verb = "delete"
+        VerbDescribe Verb = "describe"
+        VerbTop      Verb = "top"
+)
+
+type MatchMode int
+
+const (
+        MatchGlob MatchMode = iota
+        MatchRegex
+        MatchContains
+        MatchFuzzy
+)
+
+type CLIOptions struct {
+        Verb       Verb
+        Resource   string
+        Include    []string
+        Exclude    []string
+        Mode       MatchMode
+        IgnoreCase bool
+        BatchSize  int
+        Yes        bool
+        DryRun     bool
+        NoColor    bool
+        Preview    string // "list" (default) or "table"
+        // Namespace filters (applied after discovery)
+        NsExact  []string
+        NsPrefix []string
+        NsRegex  []string
+        // Safety
+        ConfirmThreshold int
+        ServerDryRun     bool
+        Fuzzy            bool
+        FuzzyMaxDistance int
+        OlderThan        time.Duration
+        YoungerThan      time.Duration
+        PodStatuses      []string
+        Unhealthy        bool
+        OutputJSON       bool
+        Debug            bool
+
+        // Label filtering and grouping
+        LabelFilters   []LabelFilter
+        GroupByLabel   string
+        ColorizeLabels bool
+
+        // Label key presence by regex
+        LabelKeyRegex []string
+
+        // Annotation filtering
+        AnnotationFilters  []LabelFilter
+        AnnotationKeyRegex  []string
+
+        // Node filters
+        NodeExact  []string
+        NodePrefix []string
+        NodeRegex  []string
+
+        // Pod container health
+        RestartExpr        string // e.g., "&gt;3", "&lt;=1"
+        ContainersNotReady bool
+        ReasonFilters      []string
+        ContainerScope     string // container name to scope reason/restart checks
+
+        // Raw flags for discovery `kubectl get ... -o json`
+        DiscoveryFlags []string
+        // Raw flags for final `kubectl &lt;verb&gt; ...`
+        FinalFlags []string
+
+        // Whether discovery used -A (affects final name formatting)
+        AllNamespaces bool
+        // Namespace from -n/--namespace if provided
+        Namespace string
+        // Extra args after `--` are appended to FinalFlags only
+        ExtraFinal []string
+}
+
+func defaultCLIOptions() CLIOptions <span class="cov8" title="1">{
+        return CLIOptions{
+                Mode:      MatchGlob,
+                BatchSize: 200,
+        }
+}</span>
+
+// parseArgs parses plugin args. Expected minimal form:
+// wild &lt;verb&gt; &lt;resource&gt; &lt;pattern&gt; [flags...] [-- extra]
+// Supported plugin flags (stripped):
+//
+//        --regex, --contains, --match &lt;p&gt;, --exclude &lt;p&gt;, --ignore-case
+//        --yes, -y, --dry-run, --batch-size &lt;n&gt;
+//
+// Other flags are forwarded. -A and -n/--namespace affect discovery and final.
+func parseArgs(argv []string) (CLIOptions, error) <span class="cov8" title="1">{
+        opts := defaultCLIOptions()
+        opts.Verb = Verb(argv[0])
+        switch opts.Verb </span>{
+        case VerbGet, VerbDelete, VerbDescribe, VerbTop:<span class="cov8" title="1"></span>
+        default:<span class="cov0" title="0">
+                return opts, fmt.Errorf("unknown verb: %s", argv[0])</span>
+        }
+        // split on -- to collect ExtraFinal flags
+        <span class="cov8" title="1">var head []string
+        var tail []string
+        if idx := indexOf(argv, "--"); idx &gt;= 0 </span><span class="cov8" title="1">{
+                head = argv[:idx]
+                tail = argv[idx+1:]
+        }</span> else<span class="cov8" title="1"> {
+                head = argv
+        }</span>
+        // Determine resource and pattern positions with sensible defaults
+        // Format: &lt;verb&gt; [&lt;resource&gt;] [&lt;pattern&gt;] [flags...]
+        <span class="cov8" title="1">includeWasDefault := false
+        // Default resource to pods if absent or next token is a flag
+        // Don't normalize here - let resolveCanonicalResource handle it dynamically via kubectl api-resources
+        if len(head) &gt; 1 &amp;&amp; !strings.HasPrefix(head[1], "-") </span><span class="cov8" title="1">{
+                opts.Resource = head[1]
+        }</span> else<span class="cov8" title="1"> {
+                opts.Resource = "pods"
+        }</span>
+        // Compute index after resource: if a resource token was present (even if normalized), advance by one
+        <span class="cov8" title="1">idxAfterRes := 1
+        if len(head) &gt; 1 &amp;&amp; !strings.HasPrefix(head[1], "-") </span><span class="cov8" title="1">{
+                idxAfterRes = 2
+        }</span>
+        // Pattern present?
+        <span class="cov8" title="1">if len(head) &gt; idxAfterRes &amp;&amp; !strings.HasPrefix(head[idxAfterRes], "-") </span><span class="cov8" title="1">{
+                opts.Include = append(opts.Include, head[idxAfterRes])
+                includeWasDefault = false
+                // flags start after pattern
+                // flags slice defined below
+        }</span> else<span class="cov8" title="1"> {
+                // Default include pattern based on mode (mode may change later; adjust afterwards if needed)
+                opts.Include = append(opts.Include, "*")
+                includeWasDefault = true
+        }</span>
+        // flags start after resource and optional pattern
+        <span class="cov8" title="1">flagsStart := idxAfterRes
+        if !includeWasDefault </span><span class="cov8" title="1">{
+                flagsStart = idxAfterRes + 1
+        }</span>
+        <span class="cov8" title="1">if flagsStart &gt; len(head) </span><span class="cov0" title="0">{
+                flagsStart = len(head)
+        }</span>
+        <span class="cov8" title="1">flags := head[flagsStart:]
+
+        // process flags, splitting plugin vs passthrough
+        for i := 0; i &lt; len(flags); i++ </span><span class="cov8" title="1">{
+                f := flags[i]
+                // plugin flags
+                switch f </span>{
+                case "--debug":<span class="cov0" title="0">
+                        opts.Debug = true
+                        continue</span>
+                case "--regex":<span class="cov8" title="1">
+                        opts.Mode = MatchRegex
+                        continue</span>
+                case "--contains":<span class="cov0" title="0">
+                        opts.Mode = MatchContains
+                        continue</span>
+                case "--fuzzy":<span class="cov0" title="0">
+                        opts.Mode = MatchFuzzy
+                        opts.Fuzzy = true
+                        if opts.FuzzyMaxDistance == 0 </span><span class="cov0" title="0">{
+                                opts.FuzzyMaxDistance = 1
+                        }</span>
+                        <span class="cov0" title="0">continue</span>
+                case "--fuzzy-distance":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--fuzzy-distance requires a value")
+                        }</span>
+                        <span class="cov0" title="0">n, err := strconv.Atoi(flags[i+1])
+                        if err != nil || n &lt; 1 </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--fuzzy-distance must be &gt;= 1")
+                        }</span>
+                        <span class="cov0" title="0">opts.FuzzyMaxDistance = n
+                        opts.Mode = MatchFuzzy
+                        opts.Fuzzy = true
+                        i++
+                        continue</span>
+                case "--prefix":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--prefix requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.Include = append(opts.Include, flags[i+1]+"*")
+                        i++
+                        continue</span>
+                case "-p":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("-p requires a value")
+                        }</span>
+                        <span class="cov8" title="1">opts.Include = append(opts.Include, flags[i+1]+"*")
+                        i++
+                        continue</span>
+                case "--ignore-case":<span class="cov8" title="1">
+                        opts.IgnoreCase = true
+                        continue</span>
+                case "--no-color":<span class="cov0" title="0">
+                        opts.NoColor = true
+                        continue</span>
+                case "--preview":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--preview requires a value (list|table)")
+                        }</span>
+                        <span class="cov0" title="0">opts.Preview = flags[i+1]
+                        i++
+                        continue</span>
+                case "--yes", "-y":<span class="cov0" title="0">
+                        opts.Yes = true
+                        continue</span>
+                case "--dry-run":<span class="cov0" title="0">
+                        opts.DryRun = true
+                        continue</span>
+                case "--match":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--match requires a value")
+                        }</span>
+                        <span class="cov8" title="1">opts.Include = append(opts.Include, flags[i+1])
+                        i++
+                        continue</span>
+                case "--exclude":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--exclude requires a value")
+                        }</span>
+                        <span class="cov8" title="1">opts.Exclude = append(opts.Exclude, flags[i+1])
+                        i++
+                        continue</span>
+                case "--batch-size":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--batch-size requires a value")
+                        }</span>
+                        <span class="cov8" title="1">n, err := strconv.Atoi(flags[i+1])
+                        if err != nil || n &lt;= 0 </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--batch-size must be a positive integer")
+                        }</span>
+                        <span class="cov8" title="1">opts.BatchSize = n
+                        i++
+                        continue</span>
+                case "--ns":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--ns requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.NsExact = append(opts.NsExact, flags[i+1])
+                        i++
+                        continue</span>
+                case "--ns-prefix":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--ns-prefix requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.NsPrefix = append(opts.NsPrefix, flags[i+1])
+                        i++
+                        continue</span>
+                case "--ns-regex":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--ns-regex requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.NsRegex = append(opts.NsRegex, flags[i+1])
+                        i++
+                        continue</span>
+                case "--confirm-threshold":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--confirm-threshold requires a value")
+                        }</span>
+                        <span class="cov0" title="0">n, err := strconv.Atoi(flags[i+1])
+                        if err != nil || n &lt; 0 </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--confirm-threshold must be a non-negative integer")
+                        }</span>
+                        <span class="cov0" title="0">opts.ConfirmThreshold = n
+                        i++
+                        continue</span>
+                case "--server-dry-run":<span class="cov0" title="0">
+                        opts.ServerDryRun = true
+                        continue</span>
+                case "--older-than":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--older-than requires a duration value (e.g., 15m, 2h, 7d)")
+                        }</span>
+                        <span class="cov8" title="1">d, err := time.ParseDuration(flags[i+1])
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("invalid duration for --older-than")
+                        }</span>
+                        <span class="cov8" title="1">opts.OlderThan = d
+                        i++
+                        continue</span>
+                case "--younger-than":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--younger-than requires a duration value")
+                        }</span>
+                        <span class="cov8" title="1">d, err := time.ParseDuration(flags[i+1])
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("invalid duration for --younger-than")
+                        }</span>
+                        <span class="cov8" title="1">opts.YoungerThan = d
+                        i++
+                        continue</span>
+                case "--pod-status":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--pod-status requires a value")
+                        }</span>
+                        <span class="cov8" title="1">opts.PodStatuses = append(opts.PodStatuses, flags[i+1])
+                        i++
+                        continue</span>
+                case "--unhealthy", "-unhealthy":<span class="cov0" title="0">
+                        opts.Unhealthy = true
+                        continue</span>
+                case "--label":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--label requires key=pattern")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelGlob)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, err
+                        }</span>
+                        <span class="cov0" title="0">opts.LabelFilters = append(opts.LabelFilters, lf)
+                        continue</span>
+                case "--label-prefix":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--label-prefix requires key=prefix")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelPrefix)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, err
+                        }</span>
+                        <span class="cov0" title="0">opts.LabelFilters = append(opts.LabelFilters, lf)
+                        continue</span>
+                case "--label-contains":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--label-contains requires key=substr")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelContains)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, err
+                        }</span>
+                        <span class="cov0" title="0">opts.LabelFilters = append(opts.LabelFilters, lf)
+                        continue</span>
+                case "--label-regex":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--label-regex requires key=regex")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelRegex)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, err
+                        }</span>
+                        <span class="cov0" title="0">opts.LabelFilters = append(opts.LabelFilters, lf)
+                        continue</span>
+                case "--label-key-regex":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--label-key-regex requires a regex")
+                        }</span>
+                        <span class="cov0" title="0">opts.LabelKeyRegex = append(opts.LabelKeyRegex, flags[i+1])
+                        i++
+                        continue</span>
+                case "--annotation":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation requires key=pattern")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelGlob)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation requires key=pattern")
+                        }</span>
+                        <span class="cov0" title="0">opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+                        continue</span>
+                case "--annotation-prefix":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation-prefix requires key=prefix")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelPrefix)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation-prefix requires key=prefix")
+                        }</span>
+                        <span class="cov0" title="0">opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+                        continue</span>
+                case "--annotation-contains":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation-contains requires key=substr")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelContains)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation-contains requires key=substr")
+                        }</span>
+                        <span class="cov0" title="0">opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+                        continue</span>
+                case "--annotation-regex":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation-regex requires key=regex")
+                        }</span>
+                        <span class="cov0" title="0">kv := flags[i+1]
+                        i++
+                        lf, err := parseLabelKV(kv, LabelRegex)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation-regex requires key=regex")
+                        }</span>
+                        <span class="cov0" title="0">opts.AnnotationFilters = append(opts.AnnotationFilters, lf)
+                        continue</span>
+                case "--annotation-key-regex":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--annotation-key-regex requires a regex")
+                        }</span>
+                        <span class="cov0" title="0">opts.AnnotationKeyRegex = append(opts.AnnotationKeyRegex, flags[i+1])
+                        i++
+                        continue</span>
+                case "--node":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--node requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.NodeExact = append(opts.NodeExact, flags[i+1])
+                        i++
+                        continue</span>
+                case "--node-prefix":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--node-prefix requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.NodePrefix = append(opts.NodePrefix, flags[i+1])
+                        i++
+                        continue</span>
+                case "--node-regex":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--node-regex requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.NodeRegex = append(opts.NodeRegex, flags[i+1])
+                        i++
+                        continue</span>
+                case "--restarts":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--restarts requires an expression like &gt;3 or &lt;=1")
+                        }</span>
+                        <span class="cov0" title="0">opts.RestartExpr = flags[i+1]
+                        i++
+                        continue</span>
+                case "--containers-not-ready":<span class="cov0" title="0">
+                        opts.ContainersNotReady = true
+                        continue</span>
+                case "--reason":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--reason requires a value (e.g., OOMKilled)")
+                        }</span>
+                        <span class="cov0" title="0">opts.ReasonFilters = append(opts.ReasonFilters, flags[i+1])
+                        i++
+                        continue</span>
+                case "--container-name":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--container-name requires a value")
+                        }</span>
+                        <span class="cov0" title="0">opts.ContainerScope = flags[i+1]
+                        i++
+                        continue</span>
+                case "--group-by-label":<span class="cov0" title="0">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--group-by-label requires a key")
+                        }</span>
+                        <span class="cov0" title="0">opts.GroupByLabel = flags[i+1]
+                        i++
+                        continue</span>
+                case "--colorize-labels":<span class="cov0" title="0">
+                        opts.ColorizeLabels = true
+                        continue</span>
+                case "--output":<span class="cov8" title="1">
+                        if i+1 &gt;= len(flags) </span><span class="cov0" title="0">{
+                                return opts, fmt.Errorf("--output requires a value")
+                        }</span>
+                        <span class="cov8" title="1">if flags[i+1] == "json" </span><span class="cov8" title="1">{
+                                opts.OutputJSON = true
+                        }</span>
+                        <span class="cov8" title="1">i++
+                        continue</span>
+                }
+
+                // discovery-affecting passthrough flags we track specially
+                <span class="cov8" title="1">if f == "-A" || f == "--all-namespaces" </span><span class="cov8" title="1">{
+                        opts.AllNamespaces = true
+                        opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
+                        continue</span>
+                }
+                <span class="cov8" title="1">if f == "-n" || f == "--namespace" </span><span class="cov8" title="1">{
+                        // Support wildcard namespace filtering via -n "xyz*" across namespaces.
+                        // If the provided namespace contains glob characters, treat it as a filter
+                        // (NsPrefix/NsRegex) and force discovery with -A. Do not forward -n to discovery.
+                        if i+1 &lt; len(flags) &amp;&amp; !strings.HasPrefix(flags[i+1], "-") </span><span class="cov8" title="1">{
+                                val := flags[i+1]
+                                if containsGlob(val) </span><span class="cov8" title="1">{
+                                        // Simple optimization: trailing '*' with no other glob -&gt; prefix
+                                        if strings.HasSuffix(val, "*") &amp;&amp; !strings.ContainsAny(val[:len(val)-1], "*?") </span><span class="cov8" title="1">{
+                                                opts.NsPrefix = append(opts.NsPrefix, strings.TrimSuffix(val, "*"))
+                                        }</span> else<span class="cov0" title="0"> {
+                                                opts.NsRegex = append(opts.NsRegex, globToRegex(val))
+                                        }</span>
+                                        <span class="cov8" title="1">opts.AllNamespaces = true
+                                        // Ensure discovery uses -A; do not append -n pattern
+                                        opts.DiscoveryFlags = append(opts.DiscoveryFlags, "-A")
+                                        i++
+                                        continue</span>
+                                }
+                                // Exact namespace: forward to discovery and remember for final invocations
+                                <span class="cov8" title="1">opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
+                                opts.Namespace = val
+                                opts.DiscoveryFlags = append(opts.DiscoveryFlags, val)
+                                i++
+                                continue</span>
+                        }
+                        // No value; just forward flag to discovery (kubectl will error and surface normally)
+                        <span class="cov0" title="0">opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
+                        continue</span>
+                }
+                // equals-form namespace flags (e.g., -n=dev, --namespace=dev)
+                <span class="cov0" title="0">if strings.HasPrefix(f, "-n=") || strings.HasPrefix(f, "--namespace=") </span><span class="cov0" title="0">{
+                        val := f[strings.Index(f, "=")+1:]
+                        if containsGlob(val) </span><span class="cov0" title="0">{
+                                if strings.HasSuffix(val, "*") &amp;&amp; !strings.ContainsAny(val[:len(val)-1], "*?") </span><span class="cov0" title="0">{
+                                        opts.NsPrefix = append(opts.NsPrefix, strings.TrimSuffix(val, "*"))
+                                }</span> else<span class="cov0" title="0"> {
+                                        opts.NsRegex = append(opts.NsRegex, globToRegex(val))
+                                }</span>
+                                <span class="cov0" title="0">opts.AllNamespaces = true
+                                // Ensure discovery uses -A; do not forward -n
+                                opts.DiscoveryFlags = append(opts.DiscoveryFlags, "-A")
+                                continue</span>
+                        }
+                        // Exact namespace: forward as -n &lt;ns&gt; for discovery and remember for finals
+                        <span class="cov0" title="0">opts.DiscoveryFlags = append(opts.DiscoveryFlags, "-n", val)
+                        opts.Namespace = val
+                        continue</span>
+                }
+
+                // output control flags for discovery should be filtered later; keep for final
+                <span class="cov0" title="0">opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
+                opts.FinalFlags = append(opts.FinalFlags, f)</span>
+        }
+        // If pattern was defaulted earlier and mode changed, adjust default pattern accordingly
+        <span class="cov8" title="1">if includeWasDefault </span><span class="cov8" title="1">{
+                switch opts.Mode </span>{
+                case MatchGlob:<span class="cov8" title="1">
+                        if len(opts.Include) == 0 </span><span class="cov0" title="0">{
+                                opts.Include = []string{"*"}
+                        }</span>
+                case MatchRegex:<span class="cov0" title="0">
+                        if len(opts.Include) == 0 </span><span class="cov0" title="0">{
+                                opts.Include = []string{".*"}
+                        }</span>
+                case MatchContains:<span class="cov0" title="0">
+                        if len(opts.Include) == 0 </span><span class="cov0" title="0">{
+                                opts.Include = []string{""}
+                        }</span>
+                case MatchFuzzy:<span class="cov0" title="0">
+                        if len(opts.Include) == 0 </span><span class="cov0" title="0">{
+                                opts.Include = []string{""}
+                        }</span>
+                }
+        }
+        // If we had inserted a default include and user also provided an explicit include (e.g., -p/--prefix/--match), drop the default
+        <span class="cov8" title="1">if includeWasDefault &amp;&amp; len(opts.Include) &gt; 1 </span><span class="cov8" title="1">{
+                // Remove the first entry which is the default
+                opts.Include = opts.Include[1:]
+        }</span>
+        <span class="cov8" title="1">opts.ExtraFinal = append(opts.ExtraFinal, tail...)
+        return opts, nil</span>
+}
+
+func indexOf(ss []string, s string) int <span class="cov8" title="1">{
+        for i, v := range ss </span><span class="cov8" title="1">{
+                if v == s </span><span class="cov8" title="1">{
+                        return i
+                }</span>
+        }
+        <span class="cov8" title="1">return -1</span>
+}
+
+
+// containsGlob returns true if s contains shell-style glob characters.
+func containsGlob(s string) bool <span class="cov8" title="1">{
+    return strings.ContainsAny(s, "*?")
+}</span>
+
+// globToRegex converts a shell-style glob pattern to a full-string regex.
+// Example: "prod-*" -&gt; "^prod-.*$" ; "*prod?" -&gt; ".*prod.$"
+func globToRegex(glob string) string <span class="cov8" title="1">{
+    var b strings.Builder
+    b.WriteString("^")
+    for i := 0; i &lt; len(glob); i++ </span><span class="cov8" title="1">{
+        c := glob[i]
+        switch c </span>{
+        case '*':<span class="cov8" title="1">
+            b.WriteString(".*")</span>
+        case '?':<span class="cov8" title="1">
+            b.WriteString(".")</span>
+        case '.', '+', '(', ')', '|', '^', '$', '[', ']', '{', '}', '\\':<span class="cov0" title="0">
+            b.WriteByte('\\')
+            b.WriteByte(c)</span>
+        default:<span class="cov8" title="1">
+            b.WriteByte(c)</span>
+        }
+    }
+    <span class="cov8" title="1">b.WriteString("$")
+    return b.String()</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package main
+
+import (
+        "bufio"
+        "encoding/json"
+        "errors"
+        "fmt"
+        "os"
+        "regexp"
+        "strings"
+        "time"
+)
+
+type matchedRef struct {
+        ns, name string
+        labels   map[string]string
+}
+
+// These are intended to be overridden at build time via -ldflags, e.g.:
+// -ldflags "-X main.version=v1.0.1 -X main.commit=abc123 -X main.date=2025-11-01"
+var (
+        version = "dev"
+        commit  = ""
+        date    = ""
+)
+
+func printUsage() <span class="cov0" title="0">{
+        fmt.Fprintf(os.Stderr, "Usage:\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild (get|delete|describe) [resource] [pattern] [flags...] [-- extra]\n\n")
+        fmt.Fprintf(os.Stderr, "Key flags:\n")
+        fmt.Fprintf(os.Stderr, "  Matching: --regex | --contains | --fuzzy [--fuzzy-distance N] | --prefix/-p VAL | --match VAL | --exclude VAL | --ignore-case\n")
+        fmt.Fprintf(os.Stderr, "  Scope: -n, --namespace NS | -A, --all-namespaces | --ns NS | --ns-prefix PFX | --ns-regex RE\n")
+        fmt.Fprintf(os.Stderr, "  Safety: --dry-run | --server-dry-run | --confirm-threshold N | --yes/-y | --preview [list|table] | --no-color\n")
+        fmt.Fprintf(os.Stderr, "  Pod filters: --older-than DURATION | --younger-than DURATION | --pod-status STATUS\n")
+        fmt.Fprintf(os.Stderr, "  Version/help: --version/-v | --help/-h\n\n")
+        fmt.Fprintf(os.Stderr, "Examples:\n")
+        fmt.Fprintf(os.Stderr, "  # Match by glob (default), single namespace\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods 'a*' -n default\n")
+        fmt.Fprintf(os.Stderr, "  # Delete with preview and confirm\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild delete cm -n default -p te --preview table\n")
+        fmt.Fprintf(os.Stderr, "  # Regex across all namespaces (single kubectl table)\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods --regex '^(api|web)-' -A\n")
+        fmt.Fprintf(os.Stderr, "  # Contains mode (note: provide pattern via --match)\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods --contains --match pi- -n dev-x\n")
+        fmt.Fprintf(os.Stderr, "  # Prefix helpers\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods --prefix foo -n default\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods -p foo -n default\n")
+        fmt.Fprintf(os.Stderr, "  # Fuzzy matching with edit distance=1 (handles hashed pod names)\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods --fuzzy --fuzzy-distance 1 --match apu-1 -n dev-x\n")
+        fmt.Fprintf(os.Stderr, "  # Namespace filters\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --ns-prefix prod-\n")
+        fmt.Fprintf(os.Stderr, "  # Namespace wildcard via -n across namespaces (adds -A implicitly)\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get svc -n 'prod-*'\n")
+        fmt.Fprintf(os.Stderr, "  # Pod age/status filters\n")
+        fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --younger-than 10m --pod-status Running\n")
+        // logs intentionally not supported; prefer stern
+        fmt.Fprintf(os.Stderr, "\nPreview &amp; color flags (delete): --no-color, --preview table\n")
+}</span>
+
+func main() <span class="cov0" title="0">{
+        argv := os.Args[1:]
+        if len(argv) == 0 </span><span class="cov0" title="0">{
+                printUsage()
+                os.Exit(2)
+        }</span>
+
+        <span class="cov0" title="0">if argv[0] == "-h" || argv[0] == "--help" || argv[0] == "help" </span><span class="cov0" title="0">{
+                printUsage()
+                return
+        }</span>
+
+        <span class="cov0" title="0">if argv[0] == "-v" || argv[0] == "--version" || argv[0] == "version" </span><span class="cov0" title="0">{
+                // Print version info and exit
+                v := version
+                if v == "" </span><span class="cov0" title="0">{
+                        v = "dev"
+                }</span>
+                <span class="cov0" title="0">if commit != "" &amp;&amp; date != "" </span><span class="cov0" title="0">{
+                        fmt.Printf("kubectl-wild %s (%s, %s)\n", v, commit, date)
+                }</span> else<span class="cov0" title="0"> if commit != "" </span><span class="cov0" title="0">{
+                        fmt.Printf("kubectl-wild %s (%s)\n", v, commit)
+                }</span> else<span class="cov0" title="0"> {
+                        fmt.Printf("kubectl-wild %s\n", v)
+                }</span>
+                <span class="cov0" title="0">return</span>
+        }
+
+        <span class="cov0" title="0">opts, err := parseArgs(argv)
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Fprintln(os.Stderr, err)
+                os.Exit(2)
+        }</span>
+
+        <span class="cov0" title="0">runner := ExecRunner{}
+        if err := runCommand(runner, opts); err != nil </span><span class="cov0" title="0">{
+                fmt.Fprintln(os.Stderr, err)
+                os.Exit(1)
+        }</span>
+}
+
+// runVerbPassthrough passes through directly to kubectl without discovery/filtering
+func runVerbPassthrough(runner Runner, opts CLIOptions) error <span class="cov0" title="0">{
+        args := []string{string(opts.Verb), opts.Resource}
+        // Add grouping label if requested
+        if opts.Verb == VerbGet &amp;&amp; opts.GroupByLabel != "" </span><span class="cov0" title="0">{
+                if !containsFlag(opts.FinalFlags, "-L") &amp;&amp; !containsFlagWithPrefix(opts.FinalFlags, "-L=") </span><span class="cov0" title="0">{
+                        args = append(args, "-L", opts.GroupByLabel)
+                }</span>
+                <span class="cov0" title="0">if opts.ColorizeLabels </span>{<span class="cov0" title="0">
+                        // Note: can't show colored summary without discovery, but that's OK for passthrough
+                }</span>
+        }
+        <span class="cov0" title="0">args = append(args, opts.DiscoveryFlags...)
+        args = append(args, opts.FinalFlags...)
+        args = append(args, opts.ExtraFinal...)
+        return runner.RunKubectl(args)</span>
+}
+
+func runCommand(runner Runner, opts CLIOptions) error <span class="cov8" title="1">{
+    // Optimization: if pattern is "*" (match all) and no filters are applied, skip discovery
+    // and pass through directly to kubectl for better performance
+    // Only do this for simple cases - if there are special behaviors needed, use discovery
+    hasPattern := len(opts.Include) &gt; 0 &amp;&amp; !(len(opts.Include) == 1 &amp;&amp; opts.Include[0] == "*")
+    hasFilters := len(opts.Exclude) &gt; 0 ||
+        len(opts.NsExact) &gt; 0 || len(opts.NsPrefix) &gt; 0 || len(opts.NsRegex) &gt; 0 ||
+        len(opts.LabelFilters) &gt; 0 || len(opts.LabelKeyRegex) &gt; 0 ||
+        len(opts.AnnotationFilters) &gt; 0 || len(opts.AnnotationKeyRegex) &gt; 0 ||
+        len(opts.NodeExact) &gt; 0 || len(opts.NodePrefix) &gt; 0 || len(opts.NodeRegex) &gt; 0 ||
+        opts.OlderThan &gt; 0 || opts.YoungerThan &gt; 0 ||
+        len(opts.PodStatuses) &gt; 0 || opts.Unhealthy ||
+        opts.RestartExpr != "" || opts.ContainersNotReady || len(opts.ReasonFilters) &gt; 0
+    // Only passthrough for simple get cases: no pattern, no filters, no -A, no grouping
+    // This avoids complex behaviors that need discovery (single-table -A, cluster-scoped handling, etc.)
+    // Also skip passthrough if resource might need resolution (no dot = might be CRD shortname/singular)
+    resourceMightNeedResolution := !strings.Contains(opts.Resource, ".")
+    canPassthrough := !hasPattern &amp;&amp; !hasFilters &amp;&amp; opts.Verb == VerbGet &amp;&amp; 
+        !opts.AllNamespaces &amp;&amp; opts.GroupByLabel == "" &amp;&amp; !resourceMightNeedResolution
+    if canPassthrough </span><span class="cov0" title="0">{
+        // No filtering needed - pass through directly to kubectl
+        if opts.Debug </span><span class="cov0" title="0">{
+            fmt.Fprintf(os.Stderr, "[debug] skipping discovery (no filters), passing through to kubectl\n")
+        }</span>
+        <span class="cov0" title="0">return runVerbPassthrough(runner, opts)</span>
+    }
+    
+    // Try discovery first with the resource as-is - let kubectl/oc handle shortnames and common forms
+    // Only resolve to canonical if discovery fails (likely a CRD that needs resolution)
+    <span class="cov8" title="1">refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
+    if err != nil </span><span class="cov8" title="1">{
+        // Discovery failed - might be a CRD that needs canonical resolution
+        // Try resolving and retry discovery
+        if canon, resolveErr := resolveCanonicalResource(runner, opts.Resource); resolveErr == nil &amp;&amp; canon != "" &amp;&amp; canon != opts.Resource </span><span class="cov8" title="1">{
+            if opts.Debug </span><span class="cov0" title="0">{
+                fmt.Fprintf(os.Stderr, "[debug] discovery failed for %q, trying resolved form %q\n", opts.Resource, canon)
+            }</span>
+            <span class="cov8" title="1">opts.Resource = canon
+            refs, err = discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
+            if err != nil </span><span class="cov0" title="0">{
+                return err
+            }</span>
+        } else<span class="cov0" title="0"> {
+            // Resolution also failed or didn't change anything - return original error
+            return err
+        }</span>
+    }
+        <span class="cov8" title="1">if opts.Debug </span><span class="cov0" title="0">{
+                // quick diagnostics: show discovered items and their reasons for pods
+                fmt.Fprintf(os.Stderr, "[debug] discovered %d %s\n", len(refs), opts.Resource)
+        fmt.Fprintf(os.Stderr, "[debug] mode=%v includes=%v excludes=%v ignoreCase=%v nsFilters: exact=%v prefix=%v regex=%v statuses=%v\n", opts.Mode, opts.Include, opts.Exclude, opts.IgnoreCase, opts.NsExact, opts.NsPrefix, opts.NsRegex, opts.PodStatuses)
+        fmt.Fprintf(os.Stderr, "[debug] flags: AllNamespaces=%v Namespace=%q DiscoveryFlags=%v FinalFlags=%v\n", opts.AllNamespaces, opts.Namespace, opts.DiscoveryFlags, opts.FinalFlags)
+                if opts.Resource == "pods" </span><span class="cov0" title="0">{
+                        shown := 0
+                        for _, r := range refs </span><span class="cov0" title="0">{
+                                if shown &gt;= 50 </span><span class="cov0" title="0">{ // cap output
+                                        fmt.Fprintln(os.Stderr, "[debug] ... (truncated)")
+                                        break</span>
+                                }
+                                <span class="cov0" title="0">fmt.Fprintf(os.Stderr, "[debug] %s/%s reasons=%v\n", r.Namespace, r.Name, r.PodReasons)
+                                shown++</span>
+                        }
+                }
+        }
+        // Build list of target names (either name or ns/name when -A)
+        // Pre-compile regexes for performance
+        <span class="cov8" title="1">nsRegexes := make([]*regexp.Regexp, 0, len(opts.NsRegex))
+        for _, reStr := range opts.NsRegex </span><span class="cov0" title="0">{
+                nsRegexes = append(nsRegexes, regexp.MustCompile(reStr))
+        }</span>
+        <span class="cov8" title="1">labelKeyRegexes := make([]*regexp.Regexp, 0, len(opts.LabelKeyRegex))
+        for _, reStr := range opts.LabelKeyRegex </span><span class="cov8" title="1">{
+                labelKeyRegexes = append(labelKeyRegexes, regexp.MustCompile(reStr))
+        }</span>
+        <span class="cov8" title="1">annotationKeyRegexes := make([]*regexp.Regexp, 0, len(opts.AnnotationKeyRegex))
+        for _, reStr := range opts.AnnotationKeyRegex </span><span class="cov8" title="1">{
+                annotationKeyRegexes = append(annotationKeyRegexes, regexp.MustCompile(reStr))
+        }</span>
+        // Pre-compile node regexes
+        <span class="cov8" title="1">nodeRegexes := make([]*regexp.Regexp, 0, len(opts.NodeRegex))
+        for _, reStr := range opts.NodeRegex </span><span class="cov0" title="0">{
+                nodeRegexes = append(nodeRegexes, regexp.MustCompile(reStr))
+        }</span>
+        // Pre-compile include/exclude regexes when in regex mode
+        <span class="cov8" title="1">var includeRegexes []*regexp.Regexp
+        var excludeRegexes []*regexp.Regexp
+        if opts.Mode == MatchRegex </span><span class="cov8" title="1">{
+                includeRegexes = make([]*regexp.Regexp, 0, len(opts.Include))
+                for _, pattern := range opts.Include </span><span class="cov8" title="1">{
+                        if opts.IgnoreCase </span><span class="cov0" title="0">{
+                                includeRegexes = append(includeRegexes, regexp.MustCompile("(?i)"+pattern))
+                        }</span> else<span class="cov8" title="1"> {
+                                includeRegexes = append(includeRegexes, regexp.MustCompile(pattern))
+                        }</span>
+                }
+                <span class="cov8" title="1">excludeRegexes = make([]*regexp.Regexp, 0, len(opts.Exclude))
+                for _, pattern := range opts.Exclude </span><span class="cov0" title="0">{
+                        if opts.IgnoreCase </span><span class="cov0" title="0">{
+                                excludeRegexes = append(excludeRegexes, regexp.MustCompile("(?i)"+pattern))
+                        }</span> else<span class="cov0" title="0"> {
+                                excludeRegexes = append(excludeRegexes, regexp.MustCompile(pattern))
+                        }</span>
+                }
+        }
+        // Pre-compile label/annotation regex filters
+        <span class="cov8" title="1">labelFilters := make([]LabelFilter, len(opts.LabelFilters))
+        for i, lf := range opts.LabelFilters </span><span class="cov8" title="1">{
+                labelFilters[i] = lf
+                if lf.Mode == LabelRegex </span><span class="cov0" title="0">{
+                        labelFilters[i].CompiledRegex = regexp.MustCompile(lf.Pattern)
+                }</span>
+        }
+        <span class="cov8" title="1">annotationFilters := make([]LabelFilter, len(opts.AnnotationFilters))
+        for i, af := range opts.AnnotationFilters </span><span class="cov8" title="1">{
+                annotationFilters[i] = af
+                if af.Mode == LabelRegex </span><span class="cov0" title="0">{
+                        annotationFilters[i].CompiledRegex = regexp.MustCompile(af.Pattern)
+                }</span>
+        }
+        <span class="cov8" title="1">matcher := Matcher{
+                Mode:              opts.Mode,
+                Includes:          opts.Include,
+                Excludes:          opts.Exclude,
+                IgnoreCase:         opts.IgnoreCase,
+                IncludeRegexes:     includeRegexes,
+                ExcludeRegexes:     excludeRegexes,
+                NsExact:            opts.NsExact,
+                NsPrefix:           opts.NsPrefix,
+                NsRegex:            nsRegexes,
+                FuzzyMaxDistance:   opts.FuzzyMaxDistance,
+                LabelFilters:       labelFilters,
+                LabelKeyRegex:      labelKeyRegexes,
+                AnnotationFilters:  annotationFilters,
+                AnnotationKeyRegex: annotationKeyRegexes,
+        }
+        var matched []matchedRef
+        for _, r := range refs </span><span class="cov8" title="1">{
+                // Optimize: check name match first, only compute nsname if needed
+                nameMatches := matcher.Matches(r.Name)
+                if !nameMatches &amp;&amp; opts.AllNamespaces </span><span class="cov0" title="0">{
+                        // Only compute nsname if we're doing all-namespaces matching
+                        nsname := r.Namespace + "/" + r.Name
+                        nameMatches = matcher.Matches(nsname)
+                }</span>
+                <span class="cov8" title="1">if nameMatches &amp;&amp; matcher.NamespaceAllowed(r.Namespace) &amp;&amp; matcher.LabelsAllowed(r.Labels) &amp;&amp; matcher.AnnotationsAllowed(r.Annotations) </span><span class="cov8" title="1">{
+                        // Age filters
+                        if opts.OlderThan &gt; 0 || opts.YoungerThan &gt; 0 </span><span class="cov8" title="1">{
+                                age := time.Since(r.CreatedAt)
+                                if opts.OlderThan &gt; 0 &amp;&amp; age &lt; opts.OlderThan </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                                <span class="cov8" title="1">if opts.YoungerThan &gt; 0 &amp;&amp; age &gt; opts.YoungerThan </span><span class="cov0" title="0">{
+                                        continue</span>
+                                }
+                        }
+                        // Node filters
+                        <span class="cov8" title="1">if len(opts.NodeExact) &gt; 0 || len(opts.NodePrefix) &gt; 0 || len(nodeRegexes) &gt; 0 </span><span class="cov8" title="1">{
+                                if !nodeAllowed(r.NodeName, opts.NodeExact, opts.NodePrefix, nodeRegexes) </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                        }
+                        // Pod status filters (only when resource == pods)
+                        <span class="cov8" title="1">if opts.Resource == "pods" &amp;&amp; len(opts.PodStatuses) &gt; 0 </span><span class="cov8" title="1">{
+                                matchesAny := false
+                                for _, s := range opts.PodStatuses </span><span class="cov8" title="1">{
+                                        ls := strings.ToLower(s)
+                                        switch ls </span>{
+                                        case "running", "pending", "succeeded", "failed", "unknown":<span class="cov8" title="1">
+                                                // Phase-based match
+                                                if strings.EqualFold(r.PodPhase, s) </span><span class="cov8" title="1">{
+                                                        if ls == "running" </span><span class="cov8" title="1">{
+                                                                // Ensure no extra reasons beyond phase/"Running" (exclude CrashLoopBackOff, Error, etc.)
+                                                                extra := false
+                                                                for _, reason := range r.PodReasons </span><span class="cov8" title="1">{
+                                                                        if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") </span><span class="cov8" title="1">{
+                                                                                continue</span>
+                                                                        }
+                                                                        <span class="cov8" title="1">extra = true
+                                                                        break</span>
+                                                                }
+                                                                <span class="cov8" title="1">if !extra </span><span class="cov8" title="1">{
+                                                                        matchesAny = true
+                                                                }</span>
+                                                        } else<span class="cov0" title="0"> {
+                                                                matchesAny = true
+                                                        }</span>
+                                                }
+                                        default:<span class="cov8" title="1">
+                                                // Container reason match
+                                                for _, reason := range r.PodReasons </span><span class="cov8" title="1">{
+                                                        if strings.EqualFold(reason, s) </span><span class="cov8" title="1">{
+                                                                matchesAny = true
+                                                                break</span>
+                                                        }
+                                                }
+                                        }
+                                        <span class="cov8" title="1">if matchesAny </span><span class="cov8" title="1">{
+                                                break</span>
+                                        }
+                                }
+                                <span class="cov8" title="1">if !matchesAny </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                        }
+                        // Restart expression filter
+                        <span class="cov8" title="1">if opts.Resource == "pods" &amp;&amp; opts.RestartExpr != "" </span><span class="cov8" title="1">{
+                                if !compareIntExpr(r.TotalRestarts, opts.RestartExpr) </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                        }
+                        // Containers not ready
+                        <span class="cov8" title="1">if opts.Resource == "pods" &amp;&amp; opts.ContainersNotReady </span><span class="cov0" title="0">{
+                                if r.NotReadyContainers == 0 </span><span class="cov0" title="0">{
+                                        continue</span>
+                                }
+                        }
+                        // Reason filters (optionally container-scoped)
+                        <span class="cov8" title="1">if opts.Resource == "pods" &amp;&amp; len(opts.ReasonFilters) &gt; 0 </span><span class="cov8" title="1">{
+                                if !reasonsMatch(r, opts.ReasonFilters, opts.ContainerScope) </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                        }
+                        <span class="cov8" title="1">if opts.Resource == "pods" &amp;&amp; opts.Unhealthy </span><span class="cov8" title="1">{
+                                // unhealthy: everything that is NOT clean Running and NOT Succeeded
+                                isRunningClean := strings.EqualFold(r.PodPhase, "Running")
+                                if isRunningClean </span><span class="cov8" title="1">{
+                                        for _, reason := range r.PodReasons </span><span class="cov8" title="1">{
+                                                if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") </span><span class="cov8" title="1">{
+                                                        continue</span>
+                                                }
+                                                <span class="cov8" title="1">isRunningClean = false
+                                                break</span>
+                                        }
+                                }
+                                <span class="cov8" title="1">isSucceeded := strings.EqualFold(r.PodPhase, "Succeeded")
+                                if isRunningClean || isSucceeded </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                        }
+                        <span class="cov8" title="1">matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name, labels: r.Labels})</span>
+                }
+        }
+        <span class="cov8" title="1">if opts.Debug </span><span class="cov0" title="0">{
+                fmt.Fprintf(os.Stderr, "[debug] matched after filters: %d\n", len(matched))
+                for i, m := range matched </span><span class="cov0" title="0">{
+                        if i &gt;= 20 </span><span class="cov0" title="0">{
+                                fmt.Fprintln(os.Stderr, "[debug] ... (truncated)")
+                                break</span>
+                        }
+                        <span class="cov0" title="0">fmt.Fprintf(os.Stderr, "[debug] keep %s/%s\n", m.ns, m.name)</span>
+                }
+        }
+        <span class="cov8" title="1">if len(matched) == 0 </span><span class="cov8" title="1">{
+                fmt.Fprintf(os.Stderr, "No %s matched given criteria.\n", opts.Resource)
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">switch opts.Verb </span>{
+        case VerbGet:<span class="cov8" title="1">
+                // If grouping by label, add -L &lt;key&gt; for kubectl get to keep native table output.
+                // Print a colored summary ONLY when --colorize-labels is set.
+                if opts.GroupByLabel != "" </span><span class="cov8" title="1">{
+                        if opts.ColorizeLabels </span><span class="cov0" title="0">{
+                                printLabelSummary(os.Stderr, opts, matched)
+                        }</span>
+                        <span class="cov8" title="1">if !containsFlag(opts.FinalFlags, "-L") &amp;&amp; !containsFlagWithPrefix(opts.FinalFlags, "-L=") </span><span class="cov8" title="1">{
+                                opts.FinalFlags = append([]string{"-L", opts.GroupByLabel}, opts.FinalFlags...)
+                        }</span>
+                }
+                <span class="cov8" title="1">return runVerbPerScope(runner, "get", opts, matched)</span>
+        case VerbDescribe:<span class="cov8" title="1">
+                return runVerbPerScope(runner, "describe", opts, matched)</span>
+        case VerbTop:<span class="cov8" title="1">
+                return runTopVerb(runner, opts, matched)</span>
+        case VerbDelete:<span class="cov8" title="1">
+                // Safety: confirm threshold BEFORE any interactive prompt
+                if opts.ConfirmThreshold &gt; 0 &amp;&amp; len(matched) &gt; opts.ConfirmThreshold &amp;&amp; !opts.Yes </span><span class="cov8" title="1">{
+                        fmt.Printf("Matched %d items which exceeds confirm threshold %d. Aborting. Use -y to force.\n", len(matched), opts.ConfirmThreshold)
+                        return nil
+                }</span>
+                <span class="cov8" title="1">if !opts.Yes &amp;&amp; !opts.DryRun </span><span class="cov0" title="0">{
+                        previewMode := opts.Preview
+                        if previewMode == "" &amp;&amp; opts.AllNamespaces </span><span class="cov0" title="0">{
+                                previewMode = "table"
+                        }</span>
+                        <span class="cov0" title="0">if previewMode == "table" </span><span class="cov0" title="0">{
+                                if err := previewAsTable(runner, opts, matched); err != nil </span><span class="cov0" title="0">{
+                                        return err
+                                }</span>
+                        } else<span class="cov0" title="0"> {
+                                previewAsList(opts, matched)
+                        }</span>
+                        <span class="cov0" title="0">confirmed, err := promptYesNo("Proceed? [y/N]: ")
+                        if err != nil </span><span class="cov0" title="0">{
+                                return err
+                        }</span>
+                        <span class="cov0" title="0">if !confirmed </span><span class="cov0" title="0">{
+                                fmt.Println("Aborted.")
+                                return nil
+                        }</span>
+                }
+                <span class="cov8" title="1">if opts.DryRun </span><span class="cov8" title="1">{
+                        var preview []string
+                        if opts.AllNamespaces </span><span class="cov0" title="0">{
+                                for _, m := range matched </span><span class="cov0" title="0">{
+                                        preview = append(preview, m.ns+"/"+m.name)
+                                }</span>
+                        } else<span class="cov8" title="1"> {
+                                for _, m := range matched </span><span class="cov8" title="1">{
+                                        preview = append(preview, m.name)
+                                }</span>
+                        }
+                        <span class="cov8" title="1">fmt.Printf("[dry-run] Would delete %d %s: %s\n", len(matched), opts.Resource, strings.Join(preview, ", "))
+                        return nil</span>
+                }
+                // Server-side dry-run
+                <span class="cov0" title="0">if opts.ServerDryRun </span><span class="cov0" title="0">{
+                        opts.FinalFlags = append(opts.FinalFlags, "--dry-run=server")
+                }</span>
+                <span class="cov0" title="0">return runVerbPerScope(runner, "delete", opts, matched)</span>
+        default:<span class="cov0" title="0">
+                return fmt.Errorf("unsupported verb: %s", opts.Verb)</span>
+        }
+}
+
+func nodeAllowed(node string, nodeExact []string, nodePrefix []string, nodeRegexes []*regexp.Regexp) bool <span class="cov8" title="1">{
+        if len(nodeExact) == 0 &amp;&amp; len(nodePrefix) == 0 &amp;&amp; len(nodeRegexes) == 0 </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">for _, n := range nodeExact </span><span class="cov8" title="1">{
+                if node == n </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">for _, p := range nodePrefix </span><span class="cov8" title="1">{
+                if strings.HasPrefix(node, p) </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">for _, re := range nodeRegexes </span><span class="cov8" title="1">{
+                if re.MatchString(node) </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">return false</span>
+}
+
+func compareIntExpr(val int, expr string) bool <span class="cov8" title="1">{
+        // Supports &gt;N, &gt;=N, &lt;N, &lt;=N, =N or just N (treated as =N)
+        op := ""
+        numStr := expr
+        if strings.HasPrefix(expr, "&gt;=") || strings.HasPrefix(expr, "&lt;=") </span><span class="cov8" title="1">{
+                op = expr[:2]
+                numStr = expr[2:]
+        }</span> else<span class="cov8" title="1"> if strings.HasPrefix(expr, "&gt;") || strings.HasPrefix(expr, "&lt;") || strings.HasPrefix(expr, "=") </span><span class="cov8" title="1">{
+                op = expr[:1]
+                numStr = expr[1:]
+        }</span> else<span class="cov8" title="1"> {
+                op = "="
+        }</span>
+        <span class="cov8" title="1">n := 0
+        for i := 0; i &lt; len(numStr); i++ </span><span class="cov8" title="1">{
+                c := numStr[i]
+                if c &lt; '0' || c &gt; '9' </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+                <span class="cov8" title="1">n = n*10 + int(c-'0')</span>
+        }
+        <span class="cov8" title="1">switch op </span>{
+        case "&gt;":<span class="cov8" title="1">
+                return val &gt; n</span>
+        case "&gt;=":<span class="cov8" title="1">
+                return val &gt;= n</span>
+        case "&lt;":<span class="cov8" title="1">
+                return val &lt; n</span>
+        case "&lt;=":<span class="cov8" title="1">
+                return val &lt;= n</span>
+        case "=":<span class="cov8" title="1">
+                return val == n</span>
+        default:<span class="cov0" title="0">
+                return false</span>
+        }
+}
+
+func reasonsMatch(r NameRef, reasons []string, container string) bool <span class="cov8" title="1">{
+        if container == "" </span><span class="cov8" title="1">{
+                for _, want := range reasons </span><span class="cov8" title="1">{
+                        matched := false
+                        for _, have := range r.PodReasons </span><span class="cov8" title="1">{
+                                if strings.EqualFold(have, want) </span><span class="cov8" title="1">{
+                                        matched = true
+                                        break</span>
+                                }
+                        }
+                        <span class="cov8" title="1">if !matched </span><span class="cov8" title="1">{
+                                return false
+                        }</span>
+                }
+                <span class="cov8" title="1">return true</span>
+        }
+        <span class="cov8" title="1">vals := r.ReasonsByContainer[container]
+        for _, want := range reasons </span><span class="cov8" title="1">{
+                matched := false
+                for _, have := range vals </span><span class="cov8" title="1">{
+                        if strings.EqualFold(have, want) </span><span class="cov8" title="1">{
+                                matched = true
+                                break</span>
+                        }
+                }
+                <span class="cov8" title="1">if !matched </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+        }
+        <span class="cov8" title="1">return true</span>
+}
+
+func promptYesNo(prompt string) (bool, error) <span class="cov0" title="0">{
+        // Always print confirmation prompt in bright red to draw attention
+        fmt.Print("\x1b[31;1m" + prompt + "\x1b[0m")
+        reader := bufio.NewReader(os.Stdin)
+        text, err := reader.ReadString('\n')
+        if err != nil </span><span class="cov0" title="0">{
+                return false, err
+        }</span>
+        <span class="cov0" title="0">t := strings.TrimSpace(text)
+        if t == "y" || t == "Y" || strings.EqualFold(t, "yes") </span><span class="cov0" title="0">{
+                return true, nil
+        }</span>
+        <span class="cov0" title="0">return false, nil</span>
+}
+
+func filterOutputFlags(flags []string) []string <span class="cov8" title="1">{
+        // Drop any -o/--output flags (and their values) from the discovery call
+        var filtered []string
+        skipNext := false
+        for i := 0; i &lt; len(flags); i++ </span><span class="cov8" title="1">{
+                if skipNext </span><span class="cov8" title="1">{
+                        skipNext = false
+                        continue</span>
+                }
+                <span class="cov8" title="1">f := flags[i]
+                if f == "-o" || f == "--output" </span><span class="cov8" title="1">{
+                        // skip flag and its value if present
+                        if i+1 &lt; len(flags) &amp;&amp; !strings.HasPrefix(flags[i+1], "-") </span><span class="cov8" title="1">{
+                                skipNext = true
+                        }</span>
+                        <span class="cov8" title="1">continue</span>
+                }
+                <span class="cov8" title="1">if strings.HasPrefix(f, "-o=") || strings.HasPrefix(f, "--output=") </span><span class="cov8" title="1">{
+                        continue</span>
+                }
+                <span class="cov8" title="1">filtered = append(filtered, f)</span>
+        }
+        <span class="cov8" title="1">return filtered</span>
+}
+
+func stripAllNamespacesFlag(flags []string) []string <span class="cov8" title="1">{
+        var out []string
+        for i := 0; i &lt; len(flags); i++ </span><span class="cov8" title="1">{
+                f := flags[i]
+                if f == "-A" || f == "--all-namespaces" </span><span class="cov8" title="1">{
+                        continue</span>
+                }
+                <span class="cov8" title="1">out = append(out, f)</span>
+        }
+        <span class="cov8" title="1">return out</span>
+}
+
+func stripNamespaceFlag(flags []string) []string <span class="cov8" title="1">{
+        var out []string
+        skipNext := false
+        for i := 0; i &lt; len(flags); i++ </span><span class="cov8" title="1">{
+                if skipNext </span><span class="cov8" title="1">{
+                        skipNext = false
+                        continue</span>
+                }
+                <span class="cov8" title="1">f := flags[i]
+                if f == "-n" || f == "--namespace" </span><span class="cov8" title="1">{
+                        if i+1 &lt; len(flags) &amp;&amp; !strings.HasPrefix(flags[i+1], "-") </span><span class="cov8" title="1">{
+                                skipNext = true
+                        }</span>
+                        <span class="cov8" title="1">continue</span>
+                }
+                <span class="cov8" title="1">out = append(out, f)</span>
+        }
+        <span class="cov8" title="1">return out</span>
+}
+
+// runTopVerb handles kubectl top command (pods/nodes)
+func runTopVerb(runner Runner, opts CLIOptions, matched []matchedRef) error <span class="cov8" title="1">{
+        // Map resource to kubectl top subcommand
+        resourceLower := strings.ToLower(opts.Resource)
+        var topSubcommand string
+        switch resourceLower </span>{
+        case "pod", "pods", "po":<span class="cov8" title="1">
+                topSubcommand = "pods"</span>
+        case "node", "nodes", "no":<span class="cov8" title="1">
+                topSubcommand = "nodes"</span>
+        default:<span class="cov8" title="1">
+                return fmt.Errorf("kubectl top only supports pods and nodes, got: %s", opts.Resource)</span>
+        }
+        
+        // Build targets and flags
+        <span class="cov8" title="1">var targets []string
+        for _, m := range matched </span><span class="cov8" title="1">{
+                targets = append(targets, m.name)
+        }</span>
+        
+        <span class="cov8" title="1">finalFlags := opts.FinalFlags
+        // For pods, handle namespace scoping
+        // Note: kubectl top pods with -n doesn't accept multiple pod names,
+        // so if we have multiple targets, we need to call without pod names
+        // and let kubectl show all pods in the namespace (we've already filtered)
+        if topSubcommand == "pods" </span><span class="cov8" title="1">{
+                if opts.AllNamespaces </span><span class="cov0" title="0">{
+                        finalFlags = append([]string{"-A"}, stripNamespaceFlag(finalFlags)...)
+                        // With -A, don't pass pod names (kubectl shows all)
+                        targets = []string{}
+                }</span> else<span class="cov8" title="1"> if opts.Namespace != "" </span><span class="cov8" title="1">{
+                        finalFlags = append([]string{"-n", opts.Namespace}, stripNamespaceFlag(finalFlags)...)
+                        // With -n and multiple pods, kubectl top doesn't accept pod names
+                        // If we have exactly one pod, we can pass it; otherwise show all in namespace
+                        if len(targets) != 1 </span><span class="cov8" title="1">{
+                                targets = []string{}
+                        }</span>
+                }
+        }
+        // For nodes, remove any namespace flags (cluster-scoped)
+        <span class="cov8" title="1">if topSubcommand == "nodes" </span><span class="cov8" title="1">{
+                finalFlags = stripAllNamespacesFlag(stripNamespaceFlag(finalFlags))
+                // kubectl top nodes can accept multiple node names
+        }</span>
+        
+        // Call kubectl top &lt;subcommand&gt; &lt;targets...&gt;
+        // For oc, use "adm top" instead of "top"
+        <span class="cov8" title="1">bin := os.Getenv("WILD_KUBECTL")
+        if bin == "" </span><span class="cov8" title="1">{
+                bin = os.Getenv("KUBECTL")
+        }</span>
+        <span class="cov8" title="1">if bin == "" </span><span class="cov8" title="1">{
+                bin = "kubectl"
+        }</span>
+        <span class="cov8" title="1">var args []string
+        if bin == "oc" </span><span class="cov0" title="0">{
+                // oc uses "adm top" instead of "top"
+                args = []string{"adm", "top", topSubcommand}
+        }</span> else<span class="cov8" title="1"> {
+                args = []string{"top", topSubcommand}
+        }</span>
+        <span class="cov8" title="1">args = append(args, targets...)
+        args = append(args, finalFlags...)
+        args = append(args, opts.ExtraFinal...)
+        return runner.RunKubectl(args)</span>
+}
+
+func runVerbPerScope(runner Runner, verb string, opts CLIOptions, matched []matchedRef) error <span class="cov8" title="1">{
+        if !opts.AllNamespaces </span><span class="cov8" title="1">{
+                // Build targets as names only, ensure -n &lt;ns&gt; propagated
+                finalFlags := opts.FinalFlags
+                if opts.Namespace != "" </span><span class="cov8" title="1">{
+                        finalFlags = append([]string{"-n", opts.Namespace}, stripNamespaceFlag(finalFlags)...)
+                }</span>
+                <span class="cov8" title="1">var targets []string
+                for _, m := range matched </span><span class="cov8" title="1">{
+                        targets = append(targets, m.name)
+                }</span>
+                <span class="cov8" title="1">return runBatched(runner, verb, opts.Resource, targets, finalFlags, opts.ExtraFinal, opts.BatchSize, false)</span>
+        }
+        // All-namespaces
+    <span class="cov8" title="1">finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+    if verb == "get" </span><span class="cov8" title="1">{
+        // Prefer a single kubectl call with ns/name targets and -A so kubectl prints the NAMESPACE column
+        return runGetAcrossNamespaces(runner, opts, matched)
+    }</span>
+    // For non-get verbs, detect cluster-scoped and avoid per-namespace iteration
+    <span class="cov8" title="1">if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil &amp;&amp; !namespaced </span><span class="cov8" title="1">{
+        var names []string
+        for _, m := range matched </span><span class="cov8" title="1">{
+            names = append(names, m.name)
+        }</span>
+        <span class="cov8" title="1">return runBatched(runner, verb, opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)</span>
+    }
+        <span class="cov0" title="0">nsToNames := map[string][]string{}
+        for _, m := range matched </span><span class="cov0" title="0">{
+                nsToNames[m.ns] = append(nsToNames[m.ns], m.name)
+        }</span>
+        <span class="cov0" title="0">headerPrinted := false
+        for ns, names := range nsToNames </span><span class="cov0" title="0">{
+                flagsForNs := append([]string{"-n", ns}, finalFlags...)
+                if err := runBatched(runner, verb, opts.Resource, names, flagsForNs, opts.ExtraFinal, opts.BatchSize, headerPrinted); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov0" title="0">if verb == "get" </span><span class="cov0" title="0">{
+                        headerPrinted = true
+                }</span>
+        }
+        <span class="cov0" title="0">return nil</span>
+}
+
+func runBatched(runner Runner, verb string, resource string, targets []string, finalFlags []string, extra []string, batchSize int, suppressFirstHeader bool) error <span class="cov8" title="1">{
+        // Avoid infinite loops when batchSize is unset/zero or negative
+        if batchSize &lt;= 0 </span><span class="cov8" title="1">{
+                batchSize = len(targets)
+                if batchSize == 0 </span><span class="cov0" title="0">{
+                        return nil
+                }</span>
+        }
+        <span class="cov8" title="1">for i := 0; i &lt; len(targets); i += batchSize </span><span class="cov8" title="1">{
+                j := i + batchSize
+                if j &gt; len(targets) </span><span class="cov8" title="1">{
+                        j = len(targets)
+                }</span>
+                <span class="cov8" title="1">batch := targets[i:j]
+                // Special-case logs: kubectl logs expects a single pod per invocation
+                if verb == "logs" </span><span class="cov8" title="1">{
+                        for _, name := range batch </span><span class="cov8" title="1">{
+                                args := []string{verb, name}
+                                args = append(args, finalFlags...)
+                                args = append(args, extra...)
+                                if err := runner.RunKubectl(args); err != nil </span><span class="cov0" title="0">{
+                                        return err
+                                }</span>
+                        }
+                        <span class="cov8" title="1">continue</span>
+                }
+                <span class="cov8" title="1">args := []string{verb, resource}
+                args = append(args, batch...)
+                // For 'get' only, suppress headers on subsequent batches so output looks like one table
+                batchFlags := finalFlags
+                if verb == "get" &amp;&amp; (i &gt; 0 || suppressFirstHeader) </span><span class="cov8" title="1">{
+                        batchFlags = append(batchFlags, "--no-headers=true")
+                }</span>
+                <span class="cov8" title="1">args = append(args, batchFlags...)
+                args = append(args, extra...)
+                if err := runner.RunKubectl(args); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+func ensureAllNamespacesFlag(flags []string) []string <span class="cov8" title="1">{
+        for _, f := range flags </span><span class="cov8" title="1">{
+                if f == "-A" || f == "--all-namespaces" </span><span class="cov8" title="1">{
+                        return flags
+                }</span>
+        }
+        <span class="cov8" title="1">return append(flags, "-A")</span>
+}
+
+// Run a single or batched kubectl get across namespaces using ns/name targets with -A,
+// so kubectl includes the NAMESPACE column.
+func runGetAcrossNamespaces(runner Runner, opts CLIOptions, matched []matchedRef) error <span class="cov8" title="1">{
+    // For cluster-scoped resources, avoid -A and fall back to normal batched get
+    if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil &amp;&amp; !namespaced </span><span class="cov8" title="1">{
+        finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+        var names []string
+        for _, m := range matched </span><span class="cov8" title="1">{
+            names = append(names, m.name)
+        }</span>
+        <span class="cov8" title="1">return runBatched(runner, "get", opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)</span>
+    }
+    // Use filtered List approach to let kubectl render a single table with NAMESPACE
+    <span class="cov8" title="1">finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+    finalFlags = ensureAllNamespacesFlag(finalFlags)
+    return runGetAllNamespacesSingleTable(runner, opts, matched, finalFlags)</span>
+}
+
+// runGetAllNamespacesSingleTable combines results into a single kubectl table by
+// filtering a JSON list and invoking kubectl once with -f.
+func runGetAllNamespacesSingleTable(runner Runner, opts CLIOptions, matched []matchedRef, finalFlags []string) error <span class="cov8" title="1">{
+        // Build keep set keyed by ns -&gt; name
+        keep := map[string]map[string]bool{}
+        for _, m := range matched </span><span class="cov8" title="1">{
+                if keep[m.ns] == nil </span><span class="cov8" title="1">{
+                        keep[m.ns] = map[string]bool{}
+                }</span>
+                <span class="cov8" title="1">keep[m.ns][m.name] = true</span>
+        }
+        // Get all as JSON
+        <span class="cov8" title="1">args := []string{"get", opts.Resource, "-A", "-o", "json"}
+        out, errOut, err := runner.CaptureKubectl(args)
+        if err != nil </span><span class="cov0" title="0">{
+                if len(errOut) &gt; 0 </span><span class="cov0" title="0">{
+                        return errors.New(strings.TrimSpace(string(errOut)))
+                }</span>
+                <span class="cov0" title="0">return err</span>
+        }
+        <span class="cov8" title="1">type metaOnly struct {
+                Metadata struct {
+                        Name      string `json:"name"`
+                        Namespace string `json:"namespace"`
+                } `json:"metadata"`
+        }
+        type listRaw struct {
+                Items []json.RawMessage `json:"items"`
+        }
+        var lr listRaw
+        if err := json.Unmarshal(out, &amp;lr); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to parse kubectl json output: %w", err)
+        }</span>
+        <span class="cov8" title="1">var filtered []json.RawMessage
+        for _, item := range lr.Items </span><span class="cov8" title="1">{
+                var mo metaOnly
+                if err := json.Unmarshal(item, &amp;mo); err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+                <span class="cov8" title="1">if keep[mo.Metadata.Namespace][mo.Metadata.Name] </span><span class="cov8" title="1">{
+                        filtered = append(filtered, item)
+                }</span>
+        }
+        <span class="cov8" title="1">list := struct {
+                APIVersion string            `json:"apiVersion"`
+                Kind       string            `json:"kind"`
+                Items      []json.RawMessage `json:"items"`
+        }{APIVersion: "v1", Kind: "List", Items: filtered}
+        payload, err := json.Marshal(list)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        // write to temp file (simpler than extending Runner for stdin)
+        <span class="cov8" title="1">tmp, err := os.CreateTemp("", "kubectl-wild-*.json")
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">defer os.Remove(tmp.Name())
+        if _, err := tmp.Write(payload); err != nil </span><span class="cov0" title="0">{
+                tmp.Close()
+                return err
+        }</span>
+        <span class="cov8" title="1">if err := tmp.Close(); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">callArgs := []string{"get", "-f", tmp.Name()}
+        callArgs = append(callArgs, finalFlags...)
+        callArgs = append(callArgs, opts.ExtraFinal...)
+        return runner.RunKubectl(callArgs)</span>
+}
+
+func colorize(s string, red bool, noColor bool) string <span class="cov8" title="1">{
+        if noColor </span><span class="cov8" title="1">{
+                return s
+        }</span>
+        <span class="cov8" title="1">if red </span><span class="cov8" title="1">{
+                return "\x1b[31;1m" + s + "\x1b[0m"
+        }</span>
+        <span class="cov0" title="0">return s</span>
+}
+
+func containsFlag(flags []string, flag string) bool <span class="cov8" title="1">{
+        for i := 0; i &lt; len(flags); i++ </span><span class="cov0" title="0">{
+                if flags[i] == flag </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">return false</span>
+}
+
+func containsFlagWithPrefix(flags []string, prefix string) bool <span class="cov8" title="1">{
+        for _, f := range flags </span><span class="cov0" title="0">{
+                if strings.HasPrefix(f, prefix) </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">return false</span>
+}
+
+func colorForValue(val string) string <span class="cov8" title="1">{
+        // deterministic color from hash of value
+        colors := []string{"31", "32", "33", "34", "35", "36"} // red, green, yellow, blue, magenta, cyan
+        h := 0
+        for i := 0; i &lt; len(val); i++ </span><span class="cov8" title="1">{
+                h = int(val[i]) + (h &lt;&lt; 6) + (h &lt;&lt; 16) - h
+        }</span>
+        <span class="cov8" title="1">idx := (h &amp; 0x7fffffff) % len(colors)
+        return "\x1b[" + colors[idx] + ";1m"</span>
+}
+
+func printLabelSummary(w *os.File, opts CLIOptions, matched []matchedRef) <span class="cov8" title="1">{
+        key := opts.GroupByLabel
+        groups := map[string]int{}
+        for _, m := range matched </span><span class="cov8" title="1">{
+                if m.labels == nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+                <span class="cov8" title="1">val := m.labels[key]
+                groups[val] = groups[val] + 1</span>
+        }
+        // Print summary to stderr so table output remains clean when piped
+        <span class="cov8" title="1">fmt.Fprintf(w, "Grouping by label %s:\n", key)
+        for val, count := range groups </span><span class="cov8" title="1">{
+                labelText := val
+                if labelText == "" </span><span class="cov0" title="0">{
+                        labelText = "(none)"
+                }</span>
+                <span class="cov8" title="1">if opts.ColorizeLabels &amp;&amp; !opts.NoColor </span><span class="cov0" title="0">{
+                        c := colorForValue(labelText)
+                        fmt.Fprintf(w, "%s%s\x1b[0m → %d\n", c, labelText, count)
+                }</span> else<span class="cov8" title="1"> {
+                        fmt.Fprintf(w, "%s → %d\n", labelText, count)
+                }</span>
+        }
+        <span class="cov8" title="1">fmt.Fprintf(w, "Added -L %s to kubectl output.\n", key)</span>
+}
+
+func previewAsList(opts CLIOptions, matched []matchedRef) <span class="cov0" title="0">{
+        // Columnar list: single-ns =&gt; NAME; all-ns =&gt; NAMESPACE\tRESOURCE/NAME (bright red)
+        fmt.Printf("About to delete %d %s:\n", len(matched), opts.Resource)
+        for _, m := range matched </span><span class="cov0" title="0">{
+                ns := m.ns
+                if ns == "" </span><span class="cov0" title="0">{
+                        ns = opts.Namespace
+                }</span>
+                <span class="cov0" title="0">if ns == "" </span><span class="cov0" title="0">{
+                        ns = "(cluster-scope)"
+                }</span>
+                <span class="cov0" title="0">var entry string
+                if opts.AllNamespaces </span><span class="cov0" title="0">{
+                        entry = fmt.Sprintf("%s\t%s/%s", ns, opts.Resource, m.name)
+                }</span> else<span class="cov0" title="0"> {
+                        entry = m.name
+                }</span>
+                <span class="cov0" title="0">fmt.Println(colorize(entry, true, opts.NoColor))</span>
+        }
+}
+
+func previewAsTable(runner Runner, opts CLIOptions, matched []matchedRef) error <span class="cov0" title="0">{
+        // Align with kubectl: when -A, use ns/name targets so NAMESPACE column is shown
+        if opts.AllNamespaces </span><span class="cov0" title="0">{
+                return runGetAcrossNamespaces(runner, opts, matched)
+        }</span>
+        // Single-namespace table preview: get &lt;resource&gt; &lt;names...&gt; -n &lt;ns&gt;
+        <span class="cov0" title="0">finalFlags := opts.FinalFlags
+        if opts.Namespace != "" </span><span class="cov0" title="0">{
+                finalFlags = append([]string{"-n", opts.Namespace}, stripNamespaceFlag(finalFlags)...)
+        }</span>
+        <span class="cov0" title="0">var names []string
+        for _, m := range matched </span><span class="cov0" title="0">{
+                names = append(names, m.name)
+        }</span>
+        <span class="cov0" title="0">return runBatched(runner, "get", opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package main
+
+import (
+        "fmt"
+        "path"
+        "regexp"
+        "strings"
+        "time"
+)
+
+type NameRef struct {
+        Namespace          string
+        Name               string
+        CreatedAt          time.Time
+        PodReasons         []string
+        PodPhase           string
+        Labels             map[string]string
+        Annotations        map[string]string
+        NodeName           string
+        TotalRestarts      int
+        NotReadyContainers int
+        ReasonsByContainer map[string][]string
+        Owners             []string // Kind/Name pairs like Deployment/web-1
+}
+
+type Matcher struct {
+        Mode       MatchMode
+        Includes   []string
+        Excludes   []string
+        IgnoreCase bool
+        // Pre-compiled regexes for include/exclude patterns (when Mode == MatchRegex)
+        IncludeRegexes []*regexp.Regexp
+        ExcludeRegexes []*regexp.Regexp
+        // Namespace filters
+        NsExact  []string
+        NsPrefix []string
+        NsRegex  []*regexp.Regexp // Pre-compiled regexes
+        // Fuzzy
+        FuzzyMaxDistance int
+
+        // Label filters
+        LabelFilters     []LabelFilter
+        LabelKeyRegex    []*regexp.Regexp // Pre-compiled regexes
+
+        // Annotation filters (reuse LabelFilter type)
+        AnnotationFilters  []LabelFilter
+        AnnotationKeyRegex []*regexp.Regexp // Pre-compiled regexes
+}
+
+type LabelMode int
+
+const (
+        LabelGlob LabelMode = iota
+        LabelPrefix
+        LabelContains
+        LabelRegex
+)
+
+type LabelFilter struct {
+        Key           string
+        Pattern       string
+        Mode          LabelMode
+        CompiledRegex *regexp.Regexp // Pre-compiled regex for LabelRegex mode (nil if not regex mode)
+}
+
+func parseLabelKV(kv string, mode LabelMode) (LabelFilter, error) <span class="cov8" title="1">{
+        parts := strings.SplitN(kv, "=", 2)
+        if len(parts) != 2 || parts[0] == "" </span><span class="cov0" title="0">{
+                return LabelFilter{}, fmt.Errorf("label filter requires key=value: %s", kv)
+        }</span>
+        <span class="cov8" title="1">return LabelFilter{Key: parts[0], Pattern: parts[1], Mode: mode}, nil</span>
+}
+
+func labelValueMatches(value string, lf LabelFilter) bool <span class="cov8" title="1">{
+        switch lf.Mode </span>{
+        case LabelGlob:<span class="cov8" title="1">
+                ok, _ := path.Match(lf.Pattern, value)
+                return ok</span>
+        case LabelPrefix:<span class="cov0" title="0">
+                return strings.HasPrefix(value, lf.Pattern)</span>
+        case LabelContains:<span class="cov0" title="0">
+                return strings.Contains(value, lf.Pattern)</span>
+        case LabelRegex:<span class="cov0" title="0">
+                if lf.CompiledRegex != nil </span><span class="cov0" title="0">{
+                        return lf.CompiledRegex.MatchString(value)
+                }</span>
+                // Fallback: compile on demand (shouldn't happen if pre-compiled properly)
+                <span class="cov0" title="0">re := regexp.MustCompile(lf.Pattern)
+                return re.MatchString(value)</span>
+        default:<span class="cov0" title="0">
+                ok, _ := path.Match(lf.Pattern, value)
+                return ok</span>
+        }
+}
+
+// LabelsAllowed applies AND across different keys, and OR across multiple filters of the same key.
+func (m Matcher) LabelsAllowed(labels map[string]string) bool <span class="cov8" title="1">{
+        if len(m.LabelFilters) == 0 </span><span class="cov8" title="1">{
+                // If there are key-regex filters, require presence of at least one matching key per regex
+                if len(m.LabelKeyRegex) == 0 </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        // group filters by key
+        <span class="cov8" title="1">byKey := map[string][]LabelFilter{}
+        for _, lf := range m.LabelFilters </span><span class="cov8" title="1">{
+                byKey[lf.Key] = append(byKey[lf.Key], lf)
+        }</span>
+        <span class="cov8" title="1">for key, fls := range byKey </span><span class="cov8" title="1">{
+                val, ok := labels[key]
+                if !ok </span><span class="cov0" title="0">{
+                        return false
+                }</span>
+                <span class="cov8" title="1">matchedAny := false
+                for _, f := range fls </span><span class="cov8" title="1">{
+                        if labelValueMatches(val, f) </span><span class="cov8" title="1">{
+                                matchedAny = true
+                                break</span>
+                        }
+                }
+                <span class="cov8" title="1">if !matchedAny </span><span class="cov0" title="0">{
+                        return false
+                }</span>
+        }
+        // Key-regex presence checks (AND across regexes)
+        <span class="cov8" title="1">for _, re := range m.LabelKeyRegex </span><span class="cov8" title="1">{
+                found := false
+                for k := range labels </span><span class="cov8" title="1">{
+                        if re.MatchString(k) </span><span class="cov8" title="1">{
+                                found = true
+                                break</span>
+                        }
+                }
+                <span class="cov8" title="1">if !found </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+        }
+        <span class="cov8" title="1">return true</span>
+}
+
+// AnnotationsAllowed applies AND across different keys, and OR across multiple filters of the same key.
+// Same logic as LabelsAllowed but for annotations.
+func (m Matcher) AnnotationsAllowed(annotations map[string]string) bool <span class="cov8" title="1">{
+        if len(m.AnnotationFilters) == 0 </span><span class="cov8" title="1">{
+                // If there are key-regex filters, require presence of at least one matching key per regex
+                if len(m.AnnotationKeyRegex) == 0 </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        // group filters by key
+        <span class="cov8" title="1">byKey := map[string][]LabelFilter{}
+        for _, af := range m.AnnotationFilters </span><span class="cov8" title="1">{
+                byKey[af.Key] = append(byKey[af.Key], af)
+        }</span>
+        <span class="cov8" title="1">for key, fls := range byKey </span><span class="cov8" title="1">{
+                val, ok := annotations[key]
+                if !ok </span><span class="cov0" title="0">{
+                        return false
+                }</span>
+                <span class="cov8" title="1">matchedAny := false
+                for _, f := range fls </span><span class="cov8" title="1">{
+                        if labelValueMatches(val, f) </span><span class="cov8" title="1">{
+                                matchedAny = true
+                                break</span>
+                        }
+                }
+                <span class="cov8" title="1">if !matchedAny </span><span class="cov0" title="0">{
+                        return false
+                }</span>
+        }
+        // Key-regex presence checks (AND across regexes)
+        <span class="cov8" title="1">for _, re := range m.AnnotationKeyRegex </span><span class="cov8" title="1">{
+                found := false
+                for k := range annotations </span><span class="cov8" title="1">{
+                        if re.MatchString(k) </span><span class="cov8" title="1">{
+                                found = true
+                                break</span>
+                        }
+                }
+                <span class="cov8" title="1">if !found </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+        }
+        <span class="cov8" title="1">return true</span>
+}
+
+func (m Matcher) Matches(name string) bool <span class="cov8" title="1">{
+        n := name
+        if m.IgnoreCase </span><span class="cov8" title="1">{
+                n = strings.ToLower(n)
+        }</span>
+
+        // includes
+        <span class="cov8" title="1">if len(m.Includes) &gt; 0 </span><span class="cov8" title="1">{
+                matched := false
+                for i, inc := range m.Includes </span><span class="cov8" title="1">{
+                        if m.Mode == MatchRegex &amp;&amp; len(m.IncludeRegexes) &gt; i &amp;&amp; m.IncludeRegexes[i] != nil </span><span class="cov8" title="1">{
+                                // Use pre-compiled regex
+                                if m.IncludeRegexes[i].MatchString(n) </span><span class="cov8" title="1">{
+                                        matched = true
+                                        break</span>
+                                }
+                        } else<span class="cov8" title="1"> {
+                                if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, inc, m.FuzzyMaxDistance) </span><span class="cov8" title="1">{
+                                        matched = true
+                                        break</span>
+                                }
+                        }
+                }
+                <span class="cov8" title="1">if !matched </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+        }
+
+        // excludes
+        <span class="cov8" title="1">for i, exc := range m.Excludes </span><span class="cov8" title="1">{
+                if m.Mode == MatchRegex &amp;&amp; len(m.ExcludeRegexes) &gt; i &amp;&amp; m.ExcludeRegexes[i] != nil </span><span class="cov0" title="0">{
+                        // Use pre-compiled regex
+                        if m.ExcludeRegexes[i].MatchString(n) </span><span class="cov0" title="0">{
+                                return false
+                        }</span>
+                } else<span class="cov8" title="1"> {
+                        if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, exc, m.FuzzyMaxDistance) </span><span class="cov8" title="1">{
+                                return false
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">return true</span>
+}
+
+func (m Matcher) NamespaceAllowed(ns string) bool <span class="cov8" title="1">{
+        // if no filters, allow all
+        if len(m.NsExact) == 0 &amp;&amp; len(m.NsPrefix) == 0 &amp;&amp; len(m.NsRegex) == 0 </span><span class="cov8" title="1">{
+                return true
+        }</span>
+        <span class="cov8" title="1">for _, e := range m.NsExact </span><span class="cov8" title="1">{
+                if ns == e </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">for _, p := range m.NsPrefix </span><span class="cov8" title="1">{
+                if strings.HasPrefix(ns, p) </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">for _, re := range m.NsRegex </span><span class="cov8" title="1">{
+                if re.MatchString(ns) </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">return false</span>
+}
+
+func matchSingle(mode MatchMode, ignoreCase bool, target string, pattern string) bool <span class="cov8" title="1">{
+        p := pattern
+        if ignoreCase </span><span class="cov8" title="1">{
+                p = strings.ToLower(p)
+        }</span>
+        <span class="cov8" title="1">switch mode </span>{
+        case MatchGlob:<span class="cov8" title="1">
+                ok, _ := path.Match(p, target)
+                return ok</span>
+        case MatchRegex:<span class="cov8" title="1">
+                // Note: This function is now only called when regexes aren't pre-compiled
+                // (e.g., for fuzzy mode or when pre-compilation wasn't done)
+                // Pre-compiled regexes are used directly in Matches() method
+                if ignoreCase </span><span class="cov8" title="1">{
+                        re := regexp.MustCompile("(?i)" + pattern)
+                        return re.MatchString(target)
+                }</span>
+                <span class="cov0" title="0">re := regexp.MustCompile(pattern)
+                return re.MatchString(target)</span>
+        case MatchContains:<span class="cov8" title="1">
+                return strings.Contains(target, p)</span>
+        case MatchFuzzy:<span class="cov0" title="0">
+                return fuzzyContains(target, pattern, 1, ignoreCase)</span>
+        default:<span class="cov0" title="0">
+                ok, _ := path.Match(p, target)
+                return ok</span>
+        }
+}
+
+func matchSingleWithDistance(mode MatchMode, ignoreCase bool, target string, pattern string, dist int) bool <span class="cov8" title="1">{
+        if mode != MatchFuzzy </span><span class="cov8" title="1">{
+                return matchSingle(mode, ignoreCase, target, pattern)
+        }</span>
+        <span class="cov8" title="1">if dist &lt;= 0 </span><span class="cov0" title="0">{
+                dist = 1
+        }</span>
+        <span class="cov8" title="1">return fuzzyContains(target, pattern, dist, ignoreCase)</span>
+}
+
+// fuzzyContains matches pattern against target allowing up to dist edits.
+// In addition to full-string distance, it attempts token-prefix and sliding-window
+// matches so that patterns like "apu-1" can match pod names like "api-1-abc123".
+func fuzzyContains(target string, pattern string, dist int, ignoreCase bool) bool <span class="cov8" title="1">{
+        if pattern == "" </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">t := target
+        p := pattern
+        if ignoreCase </span><span class="cov0" title="0">{
+                t = strings.ToLower(t)
+                p = strings.ToLower(p)
+        }</span>
+        <span class="cov8" title="1">if levenshtein(t, p) &lt;= dist </span><span class="cov8" title="1">{
+                return true
+        }</span>
+        // Token-based checks (split by common pod delimiters)
+        <span class="cov8" title="1">delims := func(r rune) bool </span><span class="cov8" title="1">{ return r == '-' || r == '_' || r == '.' }</span>
+        <span class="cov8" title="1">tokens := strings.FieldsFunc(t, delims)
+        if len(tokens) &gt; 0 </span><span class="cov8" title="1">{
+                // Check cumulative prefixes of tokens (e.g., "api-1")
+                var cumulative string
+                for i, tok := range tokens </span><span class="cov8" title="1">{
+                        if i == 0 </span><span class="cov8" title="1">{
+                                cumulative = tok
+                        }</span> else<span class="cov8" title="1"> {
+                                cumulative = cumulative + "-" + tok
+                        }</span>
+                        <span class="cov8" title="1">if levenshtein(cumulative, p) &lt;= dist </span><span class="cov8" title="1">{
+                                return true
+                        }</span>
+                        <span class="cov8" title="1">if levenshtein(tok, p) &lt;= dist </span><span class="cov0" title="0">{
+                                return true
+                        }</span>
+                        // Note: intentionally avoid arbitrary sliding windows to reduce false positives
+                        // like matching "pending-forever" for pattern "ngin".
+                }
+        }
+        <span class="cov8" title="1">return false</span>
+}
+
+// fuzzyWindow removed to avoid over-matching arbitrary inner substrings.
+
+func levenshtein(a, b string) int <span class="cov8" title="1">{
+        if a == b </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+        <span class="cov8" title="1">la, lb := len(a), len(b)
+        if la == 0 </span><span class="cov0" title="0">{
+                return lb
+        }</span>
+        <span class="cov8" title="1">if lb == 0 </span><span class="cov0" title="0">{
+                return la
+        }</span>
+        // allocate 2 rows
+        <span class="cov8" title="1">prev := make([]int, lb+1)
+        curr := make([]int, lb+1)
+        for j := 0; j &lt;= lb; j++ </span><span class="cov8" title="1">{
+                prev[j] = j
+        }</span>
+        <span class="cov8" title="1">for i := 1; i &lt;= la; i++ </span><span class="cov8" title="1">{
+                curr[0] = i
+                ca := a[i-1]
+                for j := 1; j &lt;= lb; j++ </span><span class="cov8" title="1">{
+                        cost := 0
+                        if ca != b[j-1] </span><span class="cov8" title="1">{
+                                cost = 1
+                        }</span>
+                        <span class="cov8" title="1">del := prev[j] + 1
+                        ins := curr[j-1] + 1
+                        sub := prev[j-1] + cost
+                        curr[j] = min3(del, ins, sub)</span>
+                }
+                <span class="cov8" title="1">prev, curr = curr, prev</span>
+        }
+        <span class="cov8" title="1">return prev[lb]</span>
+}
+
+func min3(a, b, c int) int <span class="cov8" title="1">{
+        if a &lt; b </span><span class="cov8" title="1">{
+                if a &lt; c </span><span class="cov8" title="1">{
+                        return a
+                }</span>
+                <span class="cov8" title="1">return c</span>
+        }
+        <span class="cov8" title="1">if b &lt; c </span><span class="cov8" title="1">{
+                return b
+        }</span>
+        <span class="cov8" title="1">return c</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package main
+
+import (
+        "bytes"
+        "encoding/json"
+        "errors"
+        "fmt"
+        "os"
+        "os/exec"
+        "strings"
+        "time"
+)
+
+type Runner interface {
+        RunKubectl(args []string) error
+        CaptureKubectl(args []string) (stdout []byte, stderr []byte, err error)
+}
+
+type ExecRunner struct{}
+
+func kubectlBin() string <span class="cov0" title="0">{
+    if b := os.Getenv("WILD_KUBECTL"); b != "" </span><span class="cov0" title="0">{
+        return b
+    }</span>
+    <span class="cov0" title="0">if b := os.Getenv("KUBECTL"); b != "" </span><span class="cov0" title="0">{
+        return b
+    }</span>
+    <span class="cov0" title="0">return "kubectl"</span>
+}
+
+func (ExecRunner) RunKubectl(args []string) error <span class="cov0" title="0">{
+    cmd := exec.Command(kubectlBin(), args...)
+        cmd.Stdin = os.Stdin
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+        return cmd.Run()
+}</span>
+
+func (ExecRunner) CaptureKubectl(args []string) ([]byte, []byte, error) <span class="cov0" title="0">{
+    cmd := exec.Command(kubectlBin(), args...)
+        var outBuf, errBuf bytes.Buffer
+        cmd.Stdout = &amp;outBuf
+        cmd.Stderr = &amp;errBuf
+        err := cmd.Run()
+        return outBuf.Bytes(), errBuf.Bytes(), err
+}</span>
+
+// In-process caches (per run). Safe without locks for single-threaded CLI usage.
+var resourceScopeCache = map[string]bool{}
+var resourceCanonicalCache = map[string]string{}
+
+// clearResourceCaches clears the resource caches (for testing)
+func clearResourceCaches() <span class="cov8" title="1">{
+        resourceScopeCache = map[string]bool{}
+        resourceCanonicalCache = map[string]string{}
+}</span>
+
+// isResourceNamespaced determines if a given resource name (e.g., "pods", "bgppeers" or
+// "bgppeers.metallb.io") is namespaced by consulting `kubectl api-resources`.
+// Returns true if namespaced, false if cluster-scoped. If detection fails, defaults to true.
+func isResourceNamespaced(runner Runner, resource string) (bool, error) <span class="cov8" title="1">{
+    if v, ok := resourceScopeCache[strings.ToLower(resource)]; ok </span><span class="cov8" title="1">{
+        return v, nil
+    }</span>
+    // Helper to check membership of resource in a list returned by api-resources -o name
+    <span class="cov8" title="1">matches := func(list string, res string) bool </span><span class="cov8" title="1">{
+        res = strings.ToLower(res)
+        lines := strings.Split(strings.ToLower(list), "\n")
+        for _, line := range lines </span><span class="cov8" title="1">{
+            line = strings.TrimSpace(line)
+            if line == "" </span><span class="cov8" title="1">{
+                continue</span>
+            }
+            <span class="cov8" title="1">if line == res </span><span class="cov8" title="1">{
+                return true
+            }</span>
+            <span class="cov8" title="1">if strings.HasPrefix(line, res+".") </span><span class="cov0" title="0">{
+                return true
+            }</span>
+            <span class="cov8" title="1">if strings.HasSuffix(line, "."+res) </span><span class="cov0" title="0">{
+                return true
+            }</span>
+        }
+        <span class="cov8" title="1">return false</span>
+    }
+    // First, check namespaced=true
+    <span class="cov8" title="1">out, _, err := runner.CaptureKubectl([]string{"api-resources", "-o", "name", "--verbs=list", "--namespaced=true"})
+    if err == nil &amp;&amp; matches(string(out), resource) </span><span class="cov8" title="1">{
+        resourceScopeCache[strings.ToLower(resource)] = true
+        return true, nil
+    }</span>
+    // Then, check namespaced=false
+    <span class="cov8" title="1">out2, _, err2 := runner.CaptureKubectl([]string{"api-resources", "-o", "name", "--verbs=list", "--namespaced=false"})
+    if err2 == nil &amp;&amp; matches(string(out2), resource) </span><span class="cov8" title="1">{
+        resourceScopeCache[strings.ToLower(resource)] = false
+        return false, nil
+    }</span>
+    // Fallback: assume namespaced if undetermined
+    <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+        resourceScopeCache[strings.ToLower(resource)] = true
+        return true, err
+    }</span>
+    <span class="cov8" title="1">if err2 != nil </span><span class="cov0" title="0">{
+        resourceScopeCache[strings.ToLower(resource)] = true
+        return true, err2
+    }</span>
+    <span class="cov8" title="1">resourceScopeCache[strings.ToLower(resource)] = true
+    return true, nil</span>
+}
+
+// resolveCanonicalResource resolves user-provided resource tokens (shortname, singular, plural,
+// or group-qualified) to canonical form as printed by `kubectl api-resources -o name`, e.g.,
+// "bgppeers.metallb.io". If resolution fails, returns the input unchanged.
+func resolveCanonicalResource(runner Runner, resource string) (string, error) <span class="cov8" title="1">{
+    lower := strings.ToLower(resource)
+    if v, ok := resourceCanonicalCache[lower]; ok </span><span class="cov8" title="1">{
+        return v, nil
+    }</span>
+    // If already contains a dot, verify via -o name list and accept as-is if present
+    <span class="cov8" title="1">if strings.Contains(lower, ".") </span><span class="cov8" title="1">{
+        if out, _, err := runner.CaptureKubectl([]string{"api-resources", "-o", "name", "--verbs=list"}); err == nil </span><span class="cov8" title="1">{
+            lines := strings.Split(strings.ToLower(string(out)), "\n")
+            for _, l := range lines </span><span class="cov8" title="1">{
+                if strings.TrimSpace(l) == lower </span><span class="cov8" title="1">{
+                    resourceCanonicalCache[lower] = lower
+                    return lower, nil
+                }</span>
+            }
+        }
+        // fall through to attempt table-based matching
+    }
+    // Build index from table: NAME, SHORTNAMES, APIGROUP, NAMESPACED, KIND, VERBS
+    <span class="cov8" title="1">out, _, err := runner.CaptureKubectl([]string{"api-resources", "--verbs=list"})
+    if err != nil </span><span class="cov0" title="0">{
+        // best-effort: return unchanged
+        resourceCanonicalCache[lower] = lower
+        return lower, err
+    }</span>
+    <span class="cov8" title="1">lines := strings.Split(string(out), "\n")
+    // Skip until header line containing NAME and NAMESPACED
+    start := 0
+    for i, ln := range lines </span><span class="cov8" title="1">{
+        if strings.Contains(ln, "NAME") &amp;&amp; strings.Contains(ln, "NAMESPACED") </span><span class="cov8" title="1">{
+            start = i + 1
+            break</span>
+        }
+    }
+    <span class="cov8" title="1">type row struct{ name, apigroup, kind string; shorts []string }
+    var rows []row
+    for i := start; i &lt; len(lines); i++ </span><span class="cov8" title="1">{
+        ln := strings.TrimSpace(lines[i])
+        if ln == "" || strings.HasPrefix(ln, "NAME") </span><span class="cov0" title="0">{
+            continue</span>
+        }
+        <span class="cov8" title="1">fields := strings.Fields(ln)
+        if len(fields) &lt; 4 </span><span class="cov0" title="0">{
+            continue</span>
+        }
+        // Find index of namespaced token (true/false)
+        <span class="cov8" title="1">idxNs := -1
+        for j, f := range fields </span><span class="cov8" title="1">{
+            if f == "true" || f == "false" </span><span class="cov8" title="1">{
+                idxNs = j
+                break</span>
+            }
+        }
+        <span class="cov8" title="1">if idxNs == -1 || idxNs+1 &gt;= len(fields) </span><span class="cov0" title="0">{
+            continue</span>
+        }
+        <span class="cov8" title="1">name := fields[0]
+        kind := fields[idxNs+1]
+        apigroup := ""
+        if idxNs-1 &gt;= 1 </span><span class="cov8" title="1">{
+            apigroup = fields[idxNs-1]
+            // If apigroup looks like a shortnames CSV (no dot and not known true/false), we treat apigroup as actual group anyway; it's fine for CRDs where group present.
+        }</span>
+        <span class="cov8" title="1">var shorts []string
+        if idxNs-1 &gt; 0 </span><span class="cov8" title="1">{
+            shorts = fields[1 : idxNs-1]
+        }</span>
+        <span class="cov8" title="1">rows = append(rows, row{name: strings.ToLower(name), apigroup: strings.ToLower(apigroup), kind: strings.ToLower(kind), shorts: toLowerSlice(shorts)})</span>
+    }
+    // Try to match lower against canonical name, name, any shortname, or kind
+    // Prefer exact group-qualified canonical first if possible
+    <span class="cov8" title="1">for _, r := range rows </span><span class="cov8" title="1">{
+        canonical := r.name
+        if r.apigroup != "" &amp;&amp; r.apigroup != "&lt;none&gt;" &amp;&amp; r.apigroup != "core" </span><span class="cov8" title="1">{
+            canonical = canonical + "." + r.apigroup
+        }</span>
+        <span class="cov8" title="1">if lower == canonical || lower == r.name </span><span class="cov0" title="0">{
+            resourceCanonicalCache[lower] = canonical
+            return canonical, nil
+        }</span>
+        // If input matches a shortname, return shortname as-is only for core resources
+        // (to ensure kubectl/oc compatibility). For CRDs, resolve to canonical form.
+        <span class="cov8" title="1">for _, s := range r.shorts </span><span class="cov8" title="1">{
+            if lower == s </span><span class="cov8" title="1">{
+                // Core resources: return shortname as-is (e.g., "svc" stays "svc")
+                // CRDs: resolve to canonical (e.g., "bgpp" -&gt; "bgppeers.metallb.io")
+                if r.apigroup == "" || r.apigroup == "&lt;none&gt;" || r.apigroup == "core" </span><span class="cov0" title="0">{
+                    resourceCanonicalCache[lower] = lower
+                    return lower, nil
+                }</span> else<span class="cov8" title="1"> {
+                    // CRD: resolve to canonical form
+                    resourceCanonicalCache[lower] = canonical
+                    return canonical, nil
+                }</span>
+            }
+        }
+        <span class="cov8" title="1">if lower == r.kind </span><span class="cov8" title="1">{
+            resourceCanonicalCache[lower] = canonical
+            return canonical, nil
+        }</span>
+    }
+    // No match: leave unchanged
+    <span class="cov0" title="0">resourceCanonicalCache[lower] = lower
+    return lower, nil</span>
+}
+
+func toLowerSlice(ss []string) []string <span class="cov8" title="1">{
+    out := make([]string, 0, len(ss))
+    for _, s := range ss </span><span class="cov8" title="1">{
+        out = append(out, strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(s, ","), ",")))
+    }</span>
+    <span class="cov8" title="1">return out</span>
+}
+
+// K8sListPartial is a minimal subset for -o json parsing
+type K8sListPartial struct {
+        Items []struct {
+                Metadata struct {
+                        Name              string            `json:"name"`
+                        Namespace         string            `json:"namespace"`
+                        CreationTimestamp string            `json:"creationTimestamp"`
+                        Labels            map[string]string `json:"labels"`
+                        Annotations       map[string]string `json:"annotations"`
+                        OwnerReferences   []struct {
+                                Kind string `json:"kind"`
+                                Name string `json:"name"`
+                        } `json:"ownerReferences"`
+                } `json:"metadata"`
+                Spec *struct {
+                        NodeName string `json:"nodeName"`
+                } `json:"spec"`
+                Status *struct {
+                        Phase             string `json:"phase"`
+                        ContainerStatuses []struct {
+                                Name         string `json:"name"`
+                                Ready        bool   `json:"ready"`
+                                RestartCount int    `json:"restartCount"`
+                                State        *struct {
+                                        Waiting *struct {
+                                                Reason string `json:"reason"`
+                                        } `json:"waiting"`
+                                        Terminated *struct {
+                                                Reason string `json:"reason"`
+                                        } `json:"terminated"`
+                                        Running *struct{} `json:"running"`
+                                } `json:"state"`
+                        } `json:"containerStatuses"`
+                } `json:"status"`
+        } `json:"items"`
+}
+
+func discoverNames(runner Runner, resource string, discoveryFlags []string) ([]NameRef, error) <span class="cov8" title="1">{
+        args := []string{"get", resource, "-o", "json"}
+        // Filter out user-provided output flags and drop -A/-n for cluster-scoped resources
+        filtered := filterOutputFlags(discoveryFlags)
+        if namespaced, err := isResourceNamespaced(runner, resource); err == nil &amp;&amp; !namespaced </span><span class="cov8" title="1">{
+                filtered = stripAllNamespacesFlag(stripNamespaceFlag(filtered))
+        }</span>
+        <span class="cov8" title="1">args = append(args, filtered...)
+        out, errOut, err := runner.CaptureKubectl(args)
+        if err != nil </span><span class="cov8" title="1">{
+                if len(errOut) &gt; 0 </span><span class="cov8" title="1">{
+                        return nil, errors.New(strings.TrimSpace(string(errOut)))
+                }</span>
+                <span class="cov0" title="0">return nil, err</span>
+        }
+
+        <span class="cov8" title="1">var list K8sListPartial
+        if err := json.Unmarshal(out, &amp;list); err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("failed to parse kubectl json output: %w", err)
+        }</span>
+        <span class="cov8" title="1">var refs []NameRef
+        for _, it := range list.Items </span><span class="cov8" title="1">{
+                var created time.Time
+                if it.Metadata.CreationTimestamp != "" </span><span class="cov8" title="1">{
+                        if t, err := time.Parse(time.RFC3339, it.Metadata.CreationTimestamp); err == nil </span><span class="cov8" title="1">{
+                                created = t
+                        }</span>
+                        // If parsing fails, created remains zero time, which will cause age filters
+                        // to potentially exclude the resource (age will be very large). This is safer
+                        // than including resources with invalid timestamps.
+                }
+                <span class="cov8" title="1">var reasons []string
+                var phase string
+                totalRestarts := 0
+                notReady := 0
+                reasonsByContainer := map[string][]string{}
+                if it.Status != nil </span><span class="cov8" title="1">{
+                        // include pod phase (Pending, Running, Succeeded, Failed, Unknown)
+                        if it.Status.Phase != "" </span><span class="cov8" title="1">{
+                                phase = it.Status.Phase
+                                reasons = append(reasons, it.Status.Phase)
+                        }</span>
+                        <span class="cov8" title="1">for _, cs := range it.Status.ContainerStatuses </span><span class="cov8" title="1">{
+                                totalRestarts += cs.RestartCount
+                                if !cs.Ready </span><span class="cov8" title="1">{
+                                        notReady++
+                                }</span>
+                                <span class="cov8" title="1">if cs.State != nil </span><span class="cov8" title="1">{
+                                        if cs.State.Waiting != nil &amp;&amp; cs.State.Waiting.Reason != "" </span><span class="cov8" title="1">{
+                                                reasons = append(reasons, cs.State.Waiting.Reason)
+                                                reasonsByContainer[cs.Name] = append(reasonsByContainer[cs.Name], cs.State.Waiting.Reason)
+                                        }</span>
+                                        <span class="cov8" title="1">if cs.State.Terminated != nil &amp;&amp; cs.State.Terminated.Reason != "" </span><span class="cov0" title="0">{
+                                                reasons = append(reasons, cs.State.Terminated.Reason)
+                                                reasonsByContainer[cs.Name] = append(reasonsByContainer[cs.Name], cs.State.Terminated.Reason)
+                                        }</span>
+                                        // running state has no reason; surface as "Running" for filters
+                                        <span class="cov8" title="1">if cs.State.Running != nil </span><span class="cov8" title="1">{
+                                                reasons = append(reasons, "Running")
+                                                reasonsByContainer[cs.Name] = append(reasonsByContainer[cs.Name], "Running")
+                                        }</span>
+                                }
+                        }
+                }
+                <span class="cov8" title="1">var owners []string
+                for _, o := range it.Metadata.OwnerReferences </span><span class="cov0" title="0">{
+                        if o.Kind != "" &amp;&amp; o.Name != "" </span><span class="cov0" title="0">{
+                                owners = append(owners, o.Kind+"/"+o.Name)
+                        }</span>
+                }
+                <span class="cov8" title="1">nodeName := ""
+                if it.Spec != nil </span><span class="cov8" title="1">{
+                        nodeName = it.Spec.NodeName
+                }</span>
+                <span class="cov8" title="1">refs = append(refs, NameRef{
+                        Namespace:          it.Metadata.Namespace,
+                        Name:               it.Metadata.Name,
+                        CreatedAt:          created,
+                        PodReasons:         reasons,
+                        PodPhase:           phase,
+                        Labels:             it.Metadata.Labels,
+                        Annotations:        it.Metadata.Annotations,
+                        NodeName:           nodeName,
+                        TotalRestarts:      totalRestarts,
+                        NotReadyContainers: notReady,
+                        ReasonsByContainer: reasonsByContainer,
+                        Owners:             owners,
+                })</span>
+        }
+        <span class="cov8" title="1">return refs, nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

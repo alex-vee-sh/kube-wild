@@ -28,6 +28,9 @@ type Matcher struct {
 	Includes   []string
 	Excludes   []string
 	IgnoreCase bool
+	// Pre-compiled regexes for include/exclude patterns (when Mode == MatchRegex)
+	IncludeRegexes []*regexp.Regexp
+	ExcludeRegexes []*regexp.Regexp
 	// Namespace filters
 	NsExact  []string
 	NsPrefix []string
@@ -54,9 +57,10 @@ const (
 )
 
 type LabelFilter struct {
-	Key     string
-	Pattern string
-	Mode    LabelMode
+	Key           string
+	Pattern       string
+	Mode          LabelMode
+	CompiledRegex *regexp.Regexp // Pre-compiled regex for LabelRegex mode (nil if not regex mode)
 }
 
 func parseLabelKV(kv string, mode LabelMode) (LabelFilter, error) {
@@ -77,6 +81,10 @@ func labelValueMatches(value string, lf LabelFilter) bool {
 	case LabelContains:
 		return strings.Contains(value, lf.Pattern)
 	case LabelRegex:
+		if lf.CompiledRegex != nil {
+			return lf.CompiledRegex.MatchString(value)
+		}
+		// Fallback: compile on demand (shouldn't happen if pre-compiled properly)
 		re := regexp.MustCompile(lf.Pattern)
 		return re.MatchString(value)
 	default:
@@ -185,10 +193,18 @@ func (m Matcher) Matches(name string) bool {
 	// includes
 	if len(m.Includes) > 0 {
 		matched := false
-		for _, inc := range m.Includes {
-			if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, inc, m.FuzzyMaxDistance) {
-				matched = true
-				break
+		for i, inc := range m.Includes {
+			if m.Mode == MatchRegex && len(m.IncludeRegexes) > i && m.IncludeRegexes[i] != nil {
+				// Use pre-compiled regex
+				if m.IncludeRegexes[i].MatchString(n) {
+					matched = true
+					break
+				}
+			} else {
+				if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, inc, m.FuzzyMaxDistance) {
+					matched = true
+					break
+				}
 			}
 		}
 		if !matched {
@@ -197,9 +213,16 @@ func (m Matcher) Matches(name string) bool {
 	}
 
 	// excludes
-	for _, exc := range m.Excludes {
-		if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, exc, m.FuzzyMaxDistance) {
-			return false
+	for i, exc := range m.Excludes {
+		if m.Mode == MatchRegex && len(m.ExcludeRegexes) > i && m.ExcludeRegexes[i] != nil {
+			// Use pre-compiled regex
+			if m.ExcludeRegexes[i].MatchString(n) {
+				return false
+			}
+		} else {
+			if matchSingleWithDistance(m.Mode, m.IgnoreCase, n, exc, m.FuzzyMaxDistance) {
+				return false
+			}
 		}
 	}
 	return true
@@ -238,6 +261,9 @@ func matchSingle(mode MatchMode, ignoreCase bool, target string, pattern string)
 		ok, _ := path.Match(p, target)
 		return ok
 	case MatchRegex:
+		// Note: This function is now only called when regexes aren't pre-compiled
+		// (e.g., for fuzzy mode or when pre-compilation wasn't done)
+		// Pre-compiled regexes are used directly in Matches() method
 		if ignoreCase {
 			re := regexp.MustCompile("(?i)" + pattern)
 			return re.MatchString(target)
