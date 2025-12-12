@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+
 type matchedRef struct {
 	ns, name string
 	labels   map[string]string
@@ -26,35 +27,71 @@ var (
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage:\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild (get|delete|describe) [resource] [pattern] [flags...] [-- extra]\n\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild (get|delete|describe|top) [resource] [pattern] [flags...] [-- extra]\n\n")
 	fmt.Fprintf(os.Stderr, "Key flags:\n")
-	fmt.Fprintf(os.Stderr, "  Matching: --regex | --contains | --fuzzy [--fuzzy-distance N] | --prefix/-p VAL | --match VAL | --exclude VAL | --ignore-case\n")
-	fmt.Fprintf(os.Stderr, "  Scope: -n, --namespace NS | -A, --all-namespaces | --ns NS | --ns-prefix PFX | --ns-regex RE\n")
-	fmt.Fprintf(os.Stderr, "  Safety: --dry-run | --server-dry-run | --confirm-threshold N | --yes/-y | --preview [list|table] | --no-color\n")
-	fmt.Fprintf(os.Stderr, "  Pod filters: --older-than DURATION | --younger-than DURATION | --pod-status STATUS\n")
-	fmt.Fprintf(os.Stderr, "  Version/help: --version/-v | --help/-h\n\n")
+	fmt.Fprintf(os.Stderr, "  Matching:\n")
+	fmt.Fprintf(os.Stderr, "    --regex              Use regex matching for pattern\n")
+	fmt.Fprintf(os.Stderr, "    --contains           Use substring matching for pattern\n")
+	fmt.Fprintf(os.Stderr, "    --fuzzy              Use fuzzy matching (handles hashed pod names)\n")
+	fmt.Fprintf(os.Stderr, "    --fuzzy-distance N   Max edit distance for fuzzy matching (default: 1)\n")
+	fmt.Fprintf(os.Stderr, "    --prefix/-p VAL      Match names starting with VAL\n")
+	fmt.Fprintf(os.Stderr, "    --match VAL          Add include pattern (repeatable)\n")
+	fmt.Fprintf(os.Stderr, "    --exclude VAL        Add exclude pattern (repeatable)\n")
+	fmt.Fprintf(os.Stderr, "    --ignore-case        Case-insensitive matching\n\n")
+	fmt.Fprintf(os.Stderr, "  Scope:\n")
+	fmt.Fprintf(os.Stderr, "    -n, --namespace NS   Target namespace (supports wildcards like 'prod-*')\n")
+	fmt.Fprintf(os.Stderr, "    -A, --all-namespaces Discover across all namespaces\n")
+	fmt.Fprintf(os.Stderr, "    --ns NS              Filter to exact namespace (repeatable)\n")
+	fmt.Fprintf(os.Stderr, "    --ns-prefix PFX      Filter namespaces by prefix (repeatable)\n")
+	fmt.Fprintf(os.Stderr, "    --ns-regex RE        Filter namespaces by regex (repeatable)\n\n")
+	fmt.Fprintf(os.Stderr, "  Labels:\n")
+	fmt.Fprintf(os.Stderr, "    --label key=glob         Filter by label value glob (repeatable)\n")
+	fmt.Fprintf(os.Stderr, "    --label-prefix key=pfx   Filter by label value prefix\n")
+	fmt.Fprintf(os.Stderr, "    --label-contains key=sub Filter by label value substring\n")
+	fmt.Fprintf(os.Stderr, "    --label-regex key=re     Filter by label value regex\n")
+	fmt.Fprintf(os.Stderr, "    --label-key-regex RE     Require label key matching regex\n")
+	fmt.Fprintf(os.Stderr, "    --group-by-label KEY     Add -L column and group output by label\n")
+	fmt.Fprintf(os.Stderr, "    --colorize-labels        Show colored summary when grouping\n\n")
+	fmt.Fprintf(os.Stderr, "  Annotations:\n")
+	fmt.Fprintf(os.Stderr, "    --annotation key=glob         Filter by annotation value glob\n")
+	fmt.Fprintf(os.Stderr, "    --annotation-prefix key=pfx   Filter by annotation value prefix\n")
+	fmt.Fprintf(os.Stderr, "    --annotation-contains key=sub Filter by annotation value substring\n")
+	fmt.Fprintf(os.Stderr, "    --annotation-regex key=re     Filter by annotation value regex\n")
+	fmt.Fprintf(os.Stderr, "    --annotation-key-regex RE     Require annotation key matching regex\n\n")
+	fmt.Fprintf(os.Stderr, "  Pod health:\n")
+	fmt.Fprintf(os.Stderr, "    --pod-status STATUS      Filter by pod phase/status (Running, Pending, etc.)\n")
+	fmt.Fprintf(os.Stderr, "    --unhealthy              Show only unhealthy pods (not clean Running/Succeeded)\n")
+	fmt.Fprintf(os.Stderr, "    --older-than DURATION    Filter pods older than duration (e.g., 1h, 7d)\n")
+	fmt.Fprintf(os.Stderr, "    --younger-than DURATION  Filter pods younger than duration\n")
+	fmt.Fprintf(os.Stderr, "    --restarts EXPR          Filter by restart count (>N, >=N, <N, <=N, =N)\n")
+	fmt.Fprintf(os.Stderr, "    --containers-not-ready   Show pods with not-ready containers\n")
+	fmt.Fprintf(os.Stderr, "    --reason REASON          Filter by container reason (OOMKilled, CrashLoopBackOff)\n")
+	fmt.Fprintf(os.Stderr, "    --container-name NAME    Scope reason filter to specific container\n\n")
+	fmt.Fprintf(os.Stderr, "  Node filters:\n")
+	fmt.Fprintf(os.Stderr, "    --node NAME          Filter pods on exact node (repeatable)\n")
+	fmt.Fprintf(os.Stderr, "    --node-prefix PFX    Filter pods on nodes by prefix\n")
+	fmt.Fprintf(os.Stderr, "    --node-regex RE      Filter pods on nodes by regex\n\n")
+	fmt.Fprintf(os.Stderr, "  Safety (delete):\n")
+	fmt.Fprintf(os.Stderr, "    --dry-run            Preview without deleting\n")
+	fmt.Fprintf(os.Stderr, "    --server-dry-run     Server-side dry-run\n")
+	fmt.Fprintf(os.Stderr, "    --confirm-threshold N  Block if matches > N (unless -y)\n")
+	fmt.Fprintf(os.Stderr, "    --yes/-y             Skip confirmation prompt\n")
+	fmt.Fprintf(os.Stderr, "    --preview [list|table]  Preview format\n")
+	fmt.Fprintf(os.Stderr, "    --no-color           Disable colored output\n\n")
+	fmt.Fprintf(os.Stderr, "  Other:\n")
+	fmt.Fprintf(os.Stderr, "    --batch-size N       Batch size for kubectl calls (default: 200)\n")
+	fmt.Fprintf(os.Stderr, "    --debug              Show debug output\n")
+	fmt.Fprintf(os.Stderr, "    --version/-v         Show version\n")
+	fmt.Fprintf(os.Stderr, "    --help/-h            Show this help\n\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
-	fmt.Fprintf(os.Stderr, "  # Match by glob (default), single namespace\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods 'a*' -n default\n")
-	fmt.Fprintf(os.Stderr, "  # Delete with preview and confirm\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild delete cm -n default -p te --preview table\n")
-	fmt.Fprintf(os.Stderr, "  # Regex across all namespaces (single kubectl table)\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --regex '^(api|web)-' -A\n")
-	fmt.Fprintf(os.Stderr, "  # Contains mode (note: provide pattern via --match)\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --contains --match pi- -n dev-x\n")
-	fmt.Fprintf(os.Stderr, "  # Prefix helpers\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --prefix foo -n default\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -p foo -n default\n")
-	fmt.Fprintf(os.Stderr, "  # Fuzzy matching with edit distance=1 (handles hashed pod names)\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --fuzzy --fuzzy-distance 1 --match apu-1 -n dev-x\n")
-	fmt.Fprintf(os.Stderr, "  # Namespace filters\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --ns-prefix prod-\n")
-	fmt.Fprintf(os.Stderr, "  # Namespace wildcard via -n across namespaces (adds -A implicitly)\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get svc -n 'prod-*'\n")
-	fmt.Fprintf(os.Stderr, "  # Pod age/status filters\n")
-	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --younger-than 10m --pod-status Running\n")
-	// logs intentionally not supported; prefer stern
-	fmt.Fprintf(os.Stderr, "\nPreview & color flags (delete): --no-color, --preview table\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods 'api-*' -n default           # Glob match\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods --regex '^(api|web)-' -A     # Regex across all ns\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get svc -n 'prod-*'                   # Namespace wildcard\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --label 'app=web-*'       # Label filter\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --restarts '>0'           # Restarted pods\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild get pods -A --unhealthy               # Unhealthy pods\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild top pods 'api-*' -n prod              # Resource usage\n")
+	fmt.Fprintf(os.Stderr, "  kubectl wild delete pods -p te -n default          # Delete with confirm\n")
 }
 
 func main() {
@@ -117,57 +154,57 @@ func runVerbPassthrough(runner Runner, opts CLIOptions) error {
 }
 
 func runCommand(runner Runner, opts CLIOptions) error {
-    // Optimization: if pattern is "*" (match all) and no filters are applied, skip discovery
-    // and pass through directly to kubectl for better performance
-    // Only do this for simple cases - if there are special behaviors needed, use discovery
-    hasPattern := len(opts.Include) > 0 && !(len(opts.Include) == 1 && opts.Include[0] == "*")
-    hasFilters := len(opts.Exclude) > 0 ||
-        len(opts.NsExact) > 0 || len(opts.NsPrefix) > 0 || len(opts.NsRegex) > 0 ||
-        len(opts.LabelFilters) > 0 || len(opts.LabelKeyRegex) > 0 ||
-        len(opts.AnnotationFilters) > 0 || len(opts.AnnotationKeyRegex) > 0 ||
-        len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(opts.NodeRegex) > 0 ||
-        opts.OlderThan > 0 || opts.YoungerThan > 0 ||
-        len(opts.PodStatuses) > 0 || opts.Unhealthy ||
-        opts.RestartExpr != "" || opts.ContainersNotReady || len(opts.ReasonFilters) > 0
-    // Only passthrough for simple get cases: no pattern, no filters, no -A, no grouping
-    // This avoids complex behaviors that need discovery (single-table -A, cluster-scoped handling, etc.)
-    // Also skip passthrough if resource might need resolution (no dot = might be CRD shortname/singular)
-    resourceMightNeedResolution := !strings.Contains(opts.Resource, ".")
-    canPassthrough := !hasPattern && !hasFilters && opts.Verb == VerbGet && 
-        !opts.AllNamespaces && opts.GroupByLabel == "" && !resourceMightNeedResolution
-    if canPassthrough {
-        // No filtering needed - pass through directly to kubectl
-        if opts.Debug {
-            fmt.Fprintf(os.Stderr, "[debug] skipping discovery (no filters), passing through to kubectl\n")
-        }
-        return runVerbPassthrough(runner, opts)
-    }
-    
-    // Try discovery first with the resource as-is - let kubectl/oc handle shortnames and common forms
-    // Only resolve to canonical if discovery fails (likely a CRD that needs resolution)
-    refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
-    if err != nil {
-        // Discovery failed - might be a CRD that needs canonical resolution
-        // Try resolving and retry discovery
-        if canon, resolveErr := resolveCanonicalResource(runner, opts.Resource); resolveErr == nil && canon != "" && canon != opts.Resource {
-            if opts.Debug {
-                fmt.Fprintf(os.Stderr, "[debug] discovery failed for %q, trying resolved form %q\n", opts.Resource, canon)
-            }
-            opts.Resource = canon
-            refs, err = discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
-            if err != nil {
-                return err
-            }
-        } else {
-            // Resolution also failed or didn't change anything - return original error
-            return err
-        }
-    }
+	// Optimization: if pattern is "*" (match all) and no filters are applied, skip discovery
+	// and pass through directly to kubectl for better performance
+	// Only do this for simple cases - if there are special behaviors needed, use discovery
+	hasPattern := len(opts.Include) > 0 && !(len(opts.Include) == 1 && opts.Include[0] == "*")
+	hasFilters := len(opts.Exclude) > 0 ||
+		len(opts.NsExact) > 0 || len(opts.NsPrefix) > 0 || len(opts.NsRegex) > 0 ||
+		len(opts.LabelFilters) > 0 || len(opts.LabelKeyRegex) > 0 ||
+		len(opts.AnnotationFilters) > 0 || len(opts.AnnotationKeyRegex) > 0 ||
+		len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(opts.NodeRegex) > 0 ||
+		opts.OlderThan > 0 || opts.YoungerThan > 0 ||
+		len(opts.PodStatuses) > 0 || opts.Unhealthy ||
+		opts.RestartExpr != "" || opts.ContainersNotReady || len(opts.ReasonFilters) > 0
+	// Only passthrough for simple get cases: no pattern, no filters, no -A, no grouping
+	// This avoids complex behaviors that need discovery (single-table -A, cluster-scoped handling, etc.)
+	// Also skip passthrough if resource might need resolution (no dot = might be CRD shortname/singular)
+	resourceMightNeedResolution := !strings.Contains(opts.Resource, ".")
+	canPassthrough := !hasPattern && !hasFilters && opts.Verb == VerbGet &&
+		!opts.AllNamespaces && opts.GroupByLabel == "" && !resourceMightNeedResolution
+	if canPassthrough {
+		// No filtering needed - pass through directly to kubectl
+		if opts.Debug {
+			fmt.Fprintf(os.Stderr, "[debug] skipping discovery (no filters), passing through to kubectl\n")
+		}
+		return runVerbPassthrough(runner, opts)
+	}
+
+	// Try discovery first with the resource as-is - let kubectl/oc handle shortnames and common forms
+	// Only resolve to canonical if discovery fails (likely a CRD that needs resolution)
+	refs, err := discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
+	if err != nil {
+		// Discovery failed - might be a CRD that needs canonical resolution
+		// Try resolving and retry discovery
+		if canon, resolveErr := resolveCanonicalResource(runner, opts.Resource); resolveErr == nil && canon != "" && canon != opts.Resource {
+			if opts.Debug {
+				fmt.Fprintf(os.Stderr, "[debug] discovery failed for %q, trying resolved form %q\n", opts.Resource, canon)
+			}
+			opts.Resource = canon
+			refs, err = discoverNames(runner, opts.Resource, opts.DiscoveryFlags)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Resolution also failed or didn't change anything - return original error
+			return err
+		}
+	}
 	if opts.Debug {
 		// quick diagnostics: show discovered items and their reasons for pods
 		fmt.Fprintf(os.Stderr, "[debug] discovered %d %s\n", len(refs), opts.Resource)
-        fmt.Fprintf(os.Stderr, "[debug] mode=%v includes=%v excludes=%v ignoreCase=%v nsFilters: exact=%v prefix=%v regex=%v statuses=%v\n", opts.Mode, opts.Include, opts.Exclude, opts.IgnoreCase, opts.NsExact, opts.NsPrefix, opts.NsRegex, opts.PodStatuses)
-        fmt.Fprintf(os.Stderr, "[debug] flags: AllNamespaces=%v Namespace=%q DiscoveryFlags=%v FinalFlags=%v\n", opts.AllNamespaces, opts.Namespace, opts.DiscoveryFlags, opts.FinalFlags)
+		fmt.Fprintf(os.Stderr, "[debug] mode=%v includes=%v excludes=%v ignoreCase=%v nsFilters: exact=%v prefix=%v regex=%v statuses=%v\n", opts.Mode, opts.Include, opts.Exclude, opts.IgnoreCase, opts.NsExact, opts.NsPrefix, opts.NsRegex, opts.PodStatuses)
+		fmt.Fprintf(os.Stderr, "[debug] flags: AllNamespaces=%v Namespace=%q DiscoveryFlags=%v FinalFlags=%v\n", opts.AllNamespaces, opts.Namespace, opts.DiscoveryFlags, opts.FinalFlags)
 		if opts.Resource == "pods" {
 			shown := 0
 			for _, r := range refs {
@@ -198,6 +235,14 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	nodeRegexes := make([]*regexp.Regexp, 0, len(opts.NodeRegex))
 	for _, reStr := range opts.NodeRegex {
 		nodeRegexes = append(nodeRegexes, regexp.MustCompile(reStr))
+	}
+	// Pre-compute node exact map for fast lookup (only if many nodes)
+	var nodeExactMap map[string]bool
+	if len(opts.NodeExact) > 3 {
+		nodeExactMap = make(map[string]bool, len(opts.NodeExact))
+		for _, n := range opts.NodeExact {
+			nodeExactMap[n] = true
+		}
 	}
 	// Pre-compile include/exclude regexes when in regex mode
 	var includeRegexes []*regexp.Regexp
@@ -235,128 +280,242 @@ func runCommand(runner Runner, opts CLIOptions) error {
 			annotationFilters[i].CompiledRegex = regexp.MustCompile(af.Pattern)
 		}
 	}
-	matcher := Matcher{
-		Mode:              opts.Mode,
-		Includes:          opts.Include,
-		Excludes:          opts.Exclude,
-		IgnoreCase:         opts.IgnoreCase,
-		IncludeRegexes:     includeRegexes,
-		ExcludeRegexes:     excludeRegexes,
-		NsExact:            opts.NsExact,
-		NsPrefix:           opts.NsPrefix,
-		NsRegex:            nsRegexes,
-		FuzzyMaxDistance:   opts.FuzzyMaxDistance,
-		LabelFilters:       labelFilters,
-		LabelKeyRegex:      labelKeyRegexes,
-		AnnotationFilters:  annotationFilters,
-		AnnotationKeyRegex: annotationKeyRegexes,
+	// Pre-compute duplicate detection for label filters (avoid allocation in hot path)
+	labelFiltersHaveDuplicates := false
+	var labelFiltersByKey map[string][]LabelFilter
+	if len(labelFilters) > 1 {
+		seenKeys := make(map[string]bool, len(labelFilters))
+		for _, lf := range labelFilters {
+			if seenKeys[lf.Key] {
+				labelFiltersHaveDuplicates = true
+				break
+			}
+			seenKeys[lf.Key] = true
+		}
+		if labelFiltersHaveDuplicates {
+			// Pre-compute grouped filters
+			labelFiltersByKey = make(map[string][]LabelFilter, len(labelFilters))
+			for _, lf := range labelFilters {
+				labelFiltersByKey[lf.Key] = append(labelFiltersByKey[lf.Key], lf)
+			}
+		}
 	}
-	var matched []matchedRef
+	// Pre-compute duplicate detection for annotation filters (avoid allocation in hot path)
+	annotationFiltersHaveDuplicates := false
+	var annotationFiltersByKey map[string][]LabelFilter
+	if len(annotationFilters) > 1 {
+		seenKeys := make(map[string]bool, len(annotationFilters))
+		for _, af := range annotationFilters {
+			if seenKeys[af.Key] {
+				annotationFiltersHaveDuplicates = true
+				break
+			}
+			seenKeys[af.Key] = true
+		}
+		if annotationFiltersHaveDuplicates {
+			// Pre-compute grouped filters
+			annotationFiltersByKey = make(map[string][]LabelFilter, len(annotationFilters))
+			for _, af := range annotationFilters {
+				annotationFiltersByKey[af.Key] = append(annotationFiltersByKey[af.Key], af)
+			}
+		}
+	}
+	// Pre-compute namespace exact match map for O(1) lookup (when there are many exact namespaces)
+	var nsExactMap map[string]bool
+	if len(opts.NsExact) > 3 {
+		// Use map for 4+ exact namespaces (threshold chosen for performance)
+		nsExactMap = make(map[string]bool, len(opts.NsExact))
+		for _, ns := range opts.NsExact {
+			nsExactMap[ns] = true
+		}
+	}
+	matcher := Matcher{
+		Mode:                            opts.Mode,
+		Includes:                        opts.Include,
+		Excludes:                        opts.Exclude,
+		IgnoreCase:                      opts.IgnoreCase,
+		IncludeRegexes:                  includeRegexes,
+		ExcludeRegexes:                  excludeRegexes,
+		NsExact:                         opts.NsExact,
+		NsPrefix:                        opts.NsPrefix,
+		NsRegex:                         nsRegexes,
+		NsExactMap:                      nsExactMap,
+		FuzzyMaxDistance:                opts.FuzzyMaxDistance,
+		LabelFilters:                    labelFilters,
+		LabelKeyRegex:                   labelKeyRegexes,
+		LabelFiltersHaveDuplicates:      labelFiltersHaveDuplicates,
+		LabelFiltersByKey:               labelFiltersByKey,
+		AnnotationFilters:               annotationFilters,
+		AnnotationKeyRegex:              annotationKeyRegexes,
+		AnnotationFiltersHaveDuplicates: annotationFiltersHaveDuplicates,
+		AnnotationFiltersByKey:          annotationFiltersByKey,
+	}
+	// Pre-allocate matched slice with estimated capacity (assume ~10% match rate for large lists)
+	estimatedCapacity := len(refs) / 10
+	if estimatedCapacity < 10 {
+		estimatedCapacity = 10
+	}
+	if estimatedCapacity > len(refs) {
+		estimatedCapacity = len(refs)
+	}
+	if estimatedCapacity == 0 {
+		estimatedCapacity = 1
+	}
+	matched := make([]matchedRef, 0, estimatedCapacity)
+	// Pre-compute if we need labels (for group-by-label or colorize)
+	needsLabels := opts.GroupByLabel != "" || opts.ColorizeLabels
 	for _, r := range refs {
-		// Optimize: check name match first, only compute nsname if needed
+		// Optimize filter order: check cheapest filters first for early exit
+		// 1. Namespace filter (cheapest - simple string comparison)
+		if !matcher.NamespaceAllowed(r.Namespace) {
+			continue
+		}
+		// 2. Name matching (moderate cost - pattern matching)
 		nameMatches := matcher.Matches(r.Name)
 		if !nameMatches && opts.AllNamespaces {
 			// Only compute nsname if we're doing all-namespaces matching
+			// Simple concatenation is faster than strings.Builder for short strings
 			nsname := r.Namespace + "/" + r.Name
 			nameMatches = matcher.Matches(nsname)
 		}
-		if nameMatches && matcher.NamespaceAllowed(r.Namespace) && matcher.LabelsAllowed(r.Labels) && matcher.AnnotationsAllowed(r.Annotations) {
-			// Age filters
-			if opts.OlderThan > 0 || opts.YoungerThan > 0 {
-				age := time.Since(r.CreatedAt)
-				if opts.OlderThan > 0 && age < opts.OlderThan {
-					continue
-				}
-				if opts.YoungerThan > 0 && age > opts.YoungerThan {
-					continue
-				}
+		if !nameMatches {
+			continue
+		}
+		// 3. Label filters (more expensive - map lookups and pattern matching)
+		if !matcher.LabelsAllowed(r.Labels) {
+			continue
+		}
+		// 4. Annotation filters (more expensive - map lookups and pattern matching)
+		if !matcher.AnnotationsAllowed(r.Annotations) {
+			continue
+		}
+		// All basic filters passed, now check resource-specific filters
+		// Age filters
+		if opts.OlderThan > 0 || opts.YoungerThan > 0 {
+			age := time.Since(r.CreatedAt)
+			if opts.OlderThan > 0 && age < opts.OlderThan {
+				continue
 			}
-			// Node filters
-			if len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(nodeRegexes) > 0 {
-				if !nodeAllowed(r.NodeName, opts.NodeExact, opts.NodePrefix, nodeRegexes) {
-					continue
-				}
+			if opts.YoungerThan > 0 && age > opts.YoungerThan {
+				continue
 			}
-			// Pod status filters (only when resource == pods)
-			if opts.Resource == "pods" && len(opts.PodStatuses) > 0 {
-				matchesAny := false
-				for _, s := range opts.PodStatuses {
-					ls := strings.ToLower(s)
-					switch ls {
-					case "running", "pending", "succeeded", "failed", "unknown":
-						// Phase-based match
-						if strings.EqualFold(r.PodPhase, s) {
-							if ls == "running" {
-								// Ensure no extra reasons beyond phase/"Running" (exclude CrashLoopBackOff, Error, etc.)
-								extra := false
-								for _, reason := range r.PodReasons {
-									if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") {
-										continue
-									}
-									extra = true
-									break
+		}
+		// Node filters
+		if len(opts.NodeExact) > 0 || len(opts.NodePrefix) > 0 || len(nodeRegexes) > 0 {
+			if !nodeAllowedFast(r.NodeName, opts.NodeExact, nodeExactMap, opts.NodePrefix, nodeRegexes) {
+				continue
+			}
+		}
+		// Pod status filters (only when resource == pods)
+		if opts.Resource == "pods" && len(opts.PodStatuses) > 0 {
+			matchesAny := false
+			// Pre-lowercase pod phase once for comparison
+			phaseLower := ""
+			if r.PodPhase != "" {
+				phaseLower = strings.ToLower(r.PodPhase)
+			}
+			for _, s := range opts.PodStatuses {
+				ls := strings.ToLower(s)
+				switch ls {
+				case "running", "pending", "succeeded", "failed", "unknown":
+					// Phase-based match (use pre-lowercased phase)
+					if phaseLower == ls {
+						if ls == "running" {
+							// Ensure no extra reasons beyond phase/"Running" (exclude CrashLoopBackOff, Error, etc.)
+							// Optimize: check common cases first without EqualFold
+							extra := false
+							for _, reason := range r.PodReasons {
+								// Fast path: exact match (most common)
+								if reason == r.PodPhase || reason == "Running" {
+									continue
 								}
-								if !extra {
-									matchesAny = true
+								// Slow path: case-insensitive match only if needed
+								if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") {
+									continue
 								}
-							} else {
-								matchesAny = true
-							}
-						}
-					default:
-						// Container reason match
-						for _, reason := range r.PodReasons {
-							if strings.EqualFold(reason, s) {
-								matchesAny = true
+								extra = true
 								break
 							}
+							if !extra {
+								matchesAny = true
+							}
+						} else {
+							matchesAny = true
 						}
 					}
-					if matchesAny {
-						break
-					}
-				}
-				if !matchesAny {
-					continue
-				}
-			}
-			// Restart expression filter
-			if opts.Resource == "pods" && opts.RestartExpr != "" {
-				if !compareIntExpr(r.TotalRestarts, opts.RestartExpr) {
-					continue
-				}
-			}
-			// Containers not ready
-			if opts.Resource == "pods" && opts.ContainersNotReady {
-				if r.NotReadyContainers == 0 {
-					continue
-				}
-			}
-			// Reason filters (optionally container-scoped)
-			if opts.Resource == "pods" && len(opts.ReasonFilters) > 0 {
-				if !reasonsMatch(r, opts.ReasonFilters, opts.ContainerScope) {
-					continue
-				}
-			}
-			if opts.Resource == "pods" && opts.Unhealthy {
-				// unhealthy: everything that is NOT clean Running and NOT Succeeded
-				isRunningClean := strings.EqualFold(r.PodPhase, "Running")
-				if isRunningClean {
+				default:
+					// Container reason match - optimize with fast path
 					for _, reason := range r.PodReasons {
-						if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") {
-							continue
+						// Fast path: exact match (most common)
+						if reason == s {
+							matchesAny = true
+							break
 						}
-						isRunningClean = false
-						break
+						// Slow path: case-insensitive match only if needed
+						if strings.EqualFold(reason, s) {
+							matchesAny = true
+							break
+						}
 					}
 				}
-				isSucceeded := strings.EqualFold(r.PodPhase, "Succeeded")
-				if isRunningClean || isSucceeded {
-					continue
+				if matchesAny {
+					break
 				}
 			}
-			matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name, labels: r.Labels})
+			if !matchesAny {
+				continue
+			}
 		}
+		// Restart expression filter
+		if opts.Resource == "pods" && opts.RestartExpr != "" {
+			if !compareIntExpr(r.TotalRestarts, opts.RestartExpr) {
+				continue
+			}
+		}
+		// Containers not ready
+		if opts.Resource == "pods" && opts.ContainersNotReady {
+			if r.NotReadyContainers == 0 {
+				continue
+			}
+		}
+		// Reason filters (optionally container-scoped)
+		if opts.Resource == "pods" && len(opts.ReasonFilters) > 0 {
+			if !reasonsMatch(r, opts.ReasonFilters, opts.ContainerScope) {
+				continue
+			}
+		}
+		if opts.Resource == "pods" && opts.Unhealthy {
+			// unhealthy: everything that is NOT clean Running and NOT Succeeded
+			// Optimize: use direct comparison first, then EqualFold if needed
+			isRunningClean := r.PodPhase == "Running" || strings.EqualFold(r.PodPhase, "Running")
+			if isRunningClean {
+				for _, reason := range r.PodReasons {
+					// Fast path: exact match
+					if reason == r.PodPhase || reason == "Running" {
+						continue
+					}
+					// Slow path: case-insensitive match only if needed
+					if strings.EqualFold(reason, r.PodPhase) || strings.EqualFold(reason, "Running") {
+						continue
+					}
+					isRunningClean = false
+					break
+				}
+			}
+			isSucceeded := r.PodPhase == "Succeeded" || strings.EqualFold(r.PodPhase, "Succeeded")
+			if isRunningClean || isSucceeded {
+				continue
+			}
+		}
+		// Only copy labels if needed (for group-by-label or colorize)
+		var labelsCopy map[string]string
+		if needsLabels && r.Labels != nil {
+			labelsCopy = make(map[string]string, len(r.Labels))
+			for k, v := range r.Labels {
+				labelsCopy[k] = v
+			}
+		}
+		matched = append(matched, matchedRef{ns: r.Namespace, name: r.Name, labels: labelsCopy})
 	}
 	if opts.Debug {
 		fmt.Fprintf(os.Stderr, "[debug] matched after filters: %d\n", len(matched))
@@ -441,13 +600,22 @@ func runCommand(runner Runner, opts CLIOptions) error {
 	}
 }
 
-func nodeAllowed(node string, nodeExact []string, nodePrefix []string, nodeRegexes []*regexp.Regexp) bool {
+// nodeAllowedFast is an optimized version that accepts a pre-computed map for exact matches
+func nodeAllowedFast(node string, nodeExact []string, nodeExactMap map[string]bool, nodePrefix []string, nodeRegexes []*regexp.Regexp) bool {
 	if len(nodeExact) == 0 && len(nodePrefix) == 0 && len(nodeRegexes) == 0 {
 		return true
 	}
-	for _, n := range nodeExact {
-		if node == n {
+	// Optimize: use map for exact matches when available (O(1) vs O(n))
+	if nodeExactMap != nil {
+		if nodeExactMap[node] {
 			return true
+		}
+	} else {
+		// Fallback: iterate for exact matches (when map not pre-computed)
+		for _, n := range nodeExact {
+			if node == n {
+				return true
+			}
 		}
 	}
 	for _, p := range nodePrefix {
@@ -461,6 +629,11 @@ func nodeAllowed(node string, nodeExact []string, nodePrefix []string, nodeRegex
 		}
 	}
 	return false
+}
+
+// nodeAllowed is kept for backward compatibility with tests
+func nodeAllowed(node string, nodeExact []string, nodePrefix []string, nodeRegexes []*regexp.Regexp) bool {
+	return nodeAllowedFast(node, nodeExact, nil, nodePrefix, nodeRegexes)
 }
 
 func compareIntExpr(val int, expr string) bool {
@@ -617,13 +790,13 @@ func runTopVerb(runner Runner, opts CLIOptions, matched []matchedRef) error {
 	default:
 		return fmt.Errorf("kubectl top only supports pods and nodes, got: %s", opts.Resource)
 	}
-	
+
 	// Build targets and flags
 	var targets []string
 	for _, m := range matched {
 		targets = append(targets, m.name)
 	}
-	
+
 	finalFlags := opts.FinalFlags
 	// For pods, handle namespace scoping
 	// Note: kubectl top pods with -n doesn't accept multiple pod names,
@@ -648,7 +821,7 @@ func runTopVerb(runner Runner, opts CLIOptions, matched []matchedRef) error {
 		finalFlags = stripAllNamespacesFlag(stripNamespaceFlag(finalFlags))
 		// kubectl top nodes can accept multiple node names
 	}
-	
+
 	// Call kubectl top <subcommand> <targets...>
 	// For oc, use "adm top" instead of "top"
 	bin := os.Getenv("WILD_KUBECTL")
@@ -685,19 +858,19 @@ func runVerbPerScope(runner Runner, verb string, opts CLIOptions, matched []matc
 		return runBatched(runner, verb, opts.Resource, targets, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
 	}
 	// All-namespaces
-    finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
-    if verb == "get" {
-        // Prefer a single kubectl call with ns/name targets and -A so kubectl prints the NAMESPACE column
-        return runGetAcrossNamespaces(runner, opts, matched)
-    }
-    // For non-get verbs, detect cluster-scoped and avoid per-namespace iteration
-    if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil && !namespaced {
-        var names []string
-        for _, m := range matched {
-            names = append(names, m.name)
-        }
-        return runBatched(runner, verb, opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
-    }
+	finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+	if verb == "get" {
+		// Prefer a single kubectl call with ns/name targets and -A so kubectl prints the NAMESPACE column
+		return runGetAcrossNamespaces(runner, opts, matched)
+	}
+	// For non-get verbs, detect cluster-scoped and avoid per-namespace iteration
+	if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil && !namespaced {
+		var names []string
+		for _, m := range matched {
+			names = append(names, m.name)
+		}
+		return runBatched(runner, verb, opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
+	}
 	nsToNames := map[string][]string{}
 	for _, m := range matched {
 		nsToNames[m.ns] = append(nsToNames[m.ns], m.name)
@@ -769,19 +942,19 @@ func ensureAllNamespacesFlag(flags []string) []string {
 // Run a single or batched kubectl get across namespaces using ns/name targets with -A,
 // so kubectl includes the NAMESPACE column.
 func runGetAcrossNamespaces(runner Runner, opts CLIOptions, matched []matchedRef) error {
-    // For cluster-scoped resources, avoid -A and fall back to normal batched get
-    if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil && !namespaced {
-        finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
-        var names []string
-        for _, m := range matched {
-            names = append(names, m.name)
-        }
-        return runBatched(runner, "get", opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
-    }
-    // Use filtered List approach to let kubectl render a single table with NAMESPACE
-    finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
-    finalFlags = ensureAllNamespacesFlag(finalFlags)
-    return runGetAllNamespacesSingleTable(runner, opts, matched, finalFlags)
+	// For cluster-scoped resources, avoid -A and fall back to normal batched get
+	if namespaced, err := isResourceNamespaced(runner, opts.Resource); err == nil && !namespaced {
+		finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+		var names []string
+		for _, m := range matched {
+			names = append(names, m.name)
+		}
+		return runBatched(runner, "get", opts.Resource, names, finalFlags, opts.ExtraFinal, opts.BatchSize, false)
+	}
+	// Use filtered List approach to let kubectl render a single table with NAMESPACE
+	finalFlags := stripAllNamespacesFlag(stripNamespaceFlag(opts.FinalFlags))
+	finalFlags = ensureAllNamespacesFlag(finalFlags)
+	return runGetAllNamespacesSingleTable(runner, opts, matched, finalFlags)
 }
 
 // runGetAllNamespacesSingleTable combines results into a single kubectl table by

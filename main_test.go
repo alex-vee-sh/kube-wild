@@ -154,13 +154,12 @@ func TestRunCommand_WithShortcutResourceAndStatus(t *testing.T) {
 	}
 }
 
-
-func TestParseArgs_AgeStatusOutputFlags(t *testing.T) {
-	opts, err := parseArgs([]string{"get", "pods", "*", "--older-than", "15m", "--younger-than", "2h", "--pod-status", "CrashLoopBackOff", "--output", "json"})
+func TestParseArgs_AgeStatusFlags(t *testing.T) {
+	opts, err := parseArgs([]string{"get", "pods", "*", "--older-than", "15m", "--younger-than", "2h", "--pod-status", "CrashLoopBackOff"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.OlderThan == 0 || opts.YoungerThan == 0 || !opts.OutputJSON || len(opts.PodStatuses) != 1 {
+	if opts.OlderThan == 0 || opts.YoungerThan == 0 || len(opts.PodStatuses) != 1 {
 		t.Fatalf("parse flags failed: %+v", opts)
 	}
 }
@@ -510,7 +509,7 @@ func TestTopVerb_Pods(t *testing.T) {
 		"{\"metadata\":{\"name\":\"api-2\",\"namespace\":\"default\"}}," +
 		"{\"metadata\":{\"name\":\"web-1\",\"namespace\":\"default\"}}]}"
 	fr.outputs["get pods -o json -n default"] = json
-	
+
 	opts := CLIOptions{Verb: VerbTop, Resource: "pods", Include: []string{"api-*"}, Mode: MatchGlob, Namespace: "default", DiscoveryFlags: []string{"-n", "default"}}
 	if err := runCommand(fr, opts); err != nil {
 		t.Fatalf("runCommand failed: %v, calls=%v", err, fr.calls)
@@ -540,7 +539,7 @@ func TestTopVerb_Nodes(t *testing.T) {
 	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
 	json := discoveryJSON("node-1", "node-2", "master-1")
 	fr.outputs["get nodes -o json"] = json
-	
+
 	opts := CLIOptions{Verb: VerbTop, Resource: "nodes", Include: []string{"node-*"}, Mode: MatchGlob}
 	if err := runCommand(fr, opts); err != nil {
 		t.Fatal(err)
@@ -568,7 +567,7 @@ func TestTopVerb_InvalidResource(t *testing.T) {
 	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
 	json := discoveryJSON("svc-1")
 	fr.outputs["get services -o json"] = json
-	
+
 	opts := CLIOptions{Verb: VerbTop, Resource: "services", Include: []string{"*"}, Mode: MatchGlob}
 	err := runCommand(fr, opts)
 	if err == nil {
@@ -974,597 +973,597 @@ func TestAllNamespaces_TargetsNsName(t *testing.T) {
 }
 
 func TestAllNamespaces_Services_SingleTable(t *testing.T) {
-    // craft discovery with namespaces for services
-    json := "{\"items\":[{" +
-        "\"metadata\":{\"name\":\"s1\",\"namespace\":\"ns1\"}},{" +
-        "\"metadata\":{\"name\":\"s2\",\"namespace\":\"ns2\"}}]}"
-    fr := &fakeRunner{outputs: map[string]string{
-        "get services -o json -A": json,
-        "get services -A -o json": json,
-    }, errs: map[string]error{}}
-    opts := CLIOptions{Verb: VerbGet, Resource: "services", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
-    opts.DiscoveryFlags = []string{"-A"}
-    if err := runCommand(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    // expect a single-table call via -f and with -A present
-    hasSingleTable := false
-    for _, c := range fr.calls {
-        if len(c) >= 3 && c[0] == "get" && c[1] == "-f" {
-            joined := " " + strings.Join(c, " ") + " "
-            if strings.Contains(joined, " -A ") {
-                hasSingleTable = true
-            }
-        }
-    }
-    if !hasSingleTable {
-        t.Fatalf("expected single-table get -f invocation with -A; calls=%v", fr.calls)
-    }
+	// craft discovery with namespaces for services
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"s1\",\"namespace\":\"ns1\"}},{" +
+		"\"metadata\":{\"name\":\"s2\",\"namespace\":\"ns2\"}}]}"
+	fr := &fakeRunner{outputs: map[string]string{
+		"get services -o json -A": json,
+		"get services -A -o json": json,
+	}, errs: map[string]error{}}
+	opts := CLIOptions{Verb: VerbGet, Resource: "services", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+	opts.DiscoveryFlags = []string{"-A"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// expect a single-table call via -f and with -A present
+	hasSingleTable := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "-f" {
+			joined := " " + strings.Join(c, " ") + " "
+			if strings.Contains(joined, " -A ") {
+				hasSingleTable = true
+			}
+		}
+	}
+	if !hasSingleTable {
+		t.Fatalf("expected single-table get -f invocation with -A; calls=%v", fr.calls)
+	}
 }
 
 func TestParseArgs_NamespaceWildcard(t *testing.T) {
-    opts, err := parseArgs([]string{"get", "pods", "-n", "xyz*"})
-    if err != nil {
-        t.Fatal(err)
-    }
-    if !opts.AllNamespaces {
-        t.Fatalf("expected AllNamespaces implied by wildcard -n")
-    }
-    if opts.Namespace != "" {
-        t.Fatalf("expected exact Namespace to be empty when wildcard provided, got %q", opts.Namespace)
-    }
-    if len(opts.NsPrefix) != 1 || opts.NsPrefix[0] != "xyz" {
-        t.Fatalf("expected NsPrefix [xyz], got %+v", opts.NsPrefix)
-    }
-    // discovery flags should include -A and not include -n xyz*
-    joined := " " + strings.Join(opts.DiscoveryFlags, " ") + " "
-    if !strings.Contains(joined, " -A ") {
-        t.Fatalf("expected -A in discovery flags; got %v", opts.DiscoveryFlags)
-    }
-    if strings.Contains(joined, " -n ") || strings.Contains(joined, " --namespace ") {
-        t.Fatalf("did not expect -n/--namespace forwarded for wildcard; got %v", opts.DiscoveryFlags)
-    }
+	opts, err := parseArgs([]string{"get", "pods", "-n", "xyz*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.AllNamespaces {
+		t.Fatalf("expected AllNamespaces implied by wildcard -n")
+	}
+	if opts.Namespace != "" {
+		t.Fatalf("expected exact Namespace to be empty when wildcard provided, got %q", opts.Namespace)
+	}
+	if len(opts.NsPrefix) != 1 || opts.NsPrefix[0] != "xyz" {
+		t.Fatalf("expected NsPrefix [xyz], got %+v", opts.NsPrefix)
+	}
+	// discovery flags should include -A and not include -n xyz*
+	joined := " " + strings.Join(opts.DiscoveryFlags, " ") + " "
+	if !strings.Contains(joined, " -A ") {
+		t.Fatalf("expected -A in discovery flags; got %v", opts.DiscoveryFlags)
+	}
+	if strings.Contains(joined, " -n ") || strings.Contains(joined, " --namespace ") {
+		t.Fatalf("did not expect -n/--namespace forwarded for wildcard; got %v", opts.DiscoveryFlags)
+	}
 }
 
 func TestWildcardNamespace_EndToEnd_FilteredSingleTable(t *testing.T) {
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    // services across namespaces; only prod-* should be kept
-    json := "{\"items\":[{" +
-        "\"metadata\":{\"name\":\"a\",\"namespace\":\"dev\"}}," +
-        "{\"metadata\":{\"name\":\"b\",\"namespace\":\"prod-x\"}}]}"
-    fr.outputs["get services -A -o json"] = json
-    fr.outputs["get services -o json -A"] = json
-    opts, err := parseArgs([]string{"get", "services", "-n", "prod-*"})
-    if err != nil {
-        t.Fatal(err)
-    }
-    if err := runCommand(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    // ensure single-table path used (get -f ...) and -A present
-    usedFilteredList := false
-    for _, c := range fr.calls {
-        if len(c) >= 2 && c[0] == "get" && c[1] == "-f" {
-            usedFilteredList = true
-        }
-    }
-    if !usedFilteredList {
-        t.Fatalf("expected filtered single-table call; calls=%v", fr.calls)
-    }
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// services across namespaces; only prod-* should be kept
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"a\",\"namespace\":\"dev\"}}," +
+		"{\"metadata\":{\"name\":\"b\",\"namespace\":\"prod-x\"}}]}"
+	fr.outputs["get services -A -o json"] = json
+	fr.outputs["get services -o json -A"] = json
+	opts, err := parseArgs([]string{"get", "services", "-n", "prod-*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// ensure single-table path used (get -f ...) and -A present
+	usedFilteredList := false
+	for _, c := range fr.calls {
+		if len(c) >= 2 && c[0] == "get" && c[1] == "-f" {
+			usedFilteredList = true
+		}
+	}
+	if !usedFilteredList {
+		t.Fatalf("expected filtered single-table call; calls=%v", fr.calls)
+	}
 }
 
 func TestRoutes_AllNamespaces_SingleTable(t *testing.T) {
-    // OpenShift routes behave like namespaced resources for our purposes
-    json := "{\"items\":[{" +
-        "\"metadata\":{\"name\":\"r1\",\"namespace\":\"ns1\"}},{" +
-        "\"metadata\":{\"name\":\"r2\",\"namespace\":\"ns2\"}}]}"
-    fr := &fakeRunner{outputs: map[string]string{
-        "get routes -o json -A": json,
-        "get routes -A -o json": json,
-    }, errs: map[string]error{}}
-    opts := CLIOptions{Verb: VerbGet, Resource: "routes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
-    opts.DiscoveryFlags = []string{"-A"}
-    if err := runCommand(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    usedFilteredList := false
-    for _, c := range fr.calls {
-        if len(c) >= 2 && c[0] == "get" && c[1] == "-f" {
-            usedFilteredList = true
-        }
-    }
-    if !usedFilteredList {
-        t.Fatalf("expected filtered single-table call; calls=%v", fr.calls)
-    }
+	// OpenShift routes behave like namespaced resources for our purposes
+	json := "{\"items\":[{" +
+		"\"metadata\":{\"name\":\"r1\",\"namespace\":\"ns1\"}},{" +
+		"\"metadata\":{\"name\":\"r2\",\"namespace\":\"ns2\"}}]}"
+	fr := &fakeRunner{outputs: map[string]string{
+		"get routes -o json -A": json,
+		"get routes -A -o json": json,
+	}, errs: map[string]error{}}
+	opts := CLIOptions{Verb: VerbGet, Resource: "routes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+	opts.DiscoveryFlags = []string{"-A"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	usedFilteredList := false
+	for _, c := range fr.calls {
+		if len(c) >= 2 && c[0] == "get" && c[1] == "-f" {
+			usedFilteredList = true
+		}
+	}
+	if !usedFilteredList {
+		t.Fatalf("expected filtered single-table call; calls=%v", fr.calls)
+	}
 }
 
 func TestClusterScoped_IgnoresAllNamespaces(t *testing.T) {
-    clearResourceCaches()
-    // Simulate cluster-scoped resource like nodes
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    // api-resources responses
-    fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\nservices\n"
-    fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\ncustomresourcedefinitions.apiextensions.k8s.io\n"
-    fr.outputs["api-resources --verbs=list"] = "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS\npods                              po           core           true         Pod          [list get]\nservices                         svc          core           true         Service      [list get]\nnodes                                           	             false        Node         [list get]\ncustomresourcedefinitions         crd,crds     apiextensions.k8s.io false        CustomResourceDefinition [list get]\n"
-    // discovery for nodes should NOT include -A
-    fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
-    opts := CLIOptions{Verb: VerbGet, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
-    opts.DiscoveryFlags = []string{"-A"}
-    if err := runCommand(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    // Ensure there was a get nodes call without -A and without -n and containing names
-    saw := false
-    for _, c := range fr.calls {
-        if len(c) >= 3 && c[0] == "get" && c[1] == "nodes" {
-            joined := " " + strings.Join(c, " ") + " "
-            if !strings.Contains(joined, " -A ") && !strings.Contains(joined, " -n ") && strings.Contains(joined, " n1 ") && strings.Contains(joined, " n2 ") {
-                saw = true
-            }
-        }
-    }
-    if !saw {
-        t.Fatalf("expected get nodes without -A/-n and with names; calls=%v", fr.calls)
-    }
+	clearResourceCaches()
+	// Simulate cluster-scoped resource like nodes
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// api-resources responses
+	fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\nservices\n"
+	fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\ncustomresourcedefinitions.apiextensions.k8s.io\n"
+	fr.outputs["api-resources --verbs=list"] = "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS\npods                              po           core           true         Pod          [list get]\nservices                         svc          core           true         Service      [list get]\nnodes                                           	             false        Node         [list get]\ncustomresourcedefinitions         crd,crds     apiextensions.k8s.io false        CustomResourceDefinition [list get]\n"
+	// discovery for nodes should NOT include -A
+	fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
+	opts := CLIOptions{Verb: VerbGet, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+	opts.DiscoveryFlags = []string{"-A"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Ensure there was a get nodes call without -A and without -n and containing names
+	saw := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "nodes" {
+			joined := " " + strings.Join(c, " ") + " "
+			if !strings.Contains(joined, " -A ") && !strings.Contains(joined, " -n ") && strings.Contains(joined, " n1 ") && strings.Contains(joined, " n2 ") {
+				saw = true
+			}
+		}
+	}
+	if !saw {
+		t.Fatalf("expected get nodes without -A/-n and with names; calls=%v", fr.calls)
+	}
 }
 
 func TestCanonicalResource_ResolvesCRD_FromSingularAndShortname(t *testing.T) {
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    // api-resources discovery
-    fr.outputs["api-resources -o name --verbs=list"] = "bgppeers.metallb.io\n"
-    // table with columns: NAME SHORTNAMES APIGROUP NAMESPACED KIND VERBS
-    fr.outputs["api-resources --verbs=list"] = strings.Join([]string{
-        "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS",
-        "bgppeers                          bgpp        metallb.io      true         BGPPeer      [list get]",
-        "nodes                                           	             false        Node         [list get]",
-    }, "\n")
-    // discovery for canonical resource
-    fr.outputs["get bgppeers.metallb.io -o json"] = discoveryJSON("peer1")
-    // singular form should resolve to plural.group
-    opts := CLIOptions{Verb: VerbGet, Resource: "bgppeer", Include: []string{"*"}, Mode: MatchGlob}
-    if err := runCommand(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    // Ensure get targeted the canonical name
-    saw := false
-    for _, c := range fr.calls {
-        if len(c) >= 3 && c[0] == "get" && c[1] == "bgppeers.metallb.io" && c[2] == "-o" {
-            saw = true
-        }
-    }
-    if !saw {
-        t.Fatalf("expected discovery to use canonical plural.group; calls=%v", fr.calls)
-    }
-    // shortname should also resolve
-    fr.calls = nil
-    if err := runCommand(fr, CLIOptions{Verb: VerbGet, Resource: "bgpp", Include: []string{"*"}, Mode: MatchGlob}); err != nil {
-        t.Fatal(err)
-    }
-    saw = false
-    for _, c := range fr.calls {
-        if len(c) >= 3 && c[0] == "get" && c[1] == "bgppeers.metallb.io" && c[2] == "-o" {
-            saw = true
-        }
-    }
-    if !saw {
-        t.Fatalf("expected shortname to resolve to canonical; calls=%v", fr.calls)
-    }
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// api-resources discovery
+	fr.outputs["api-resources -o name --verbs=list"] = "bgppeers.metallb.io\n"
+	// table with columns: NAME SHORTNAMES APIGROUP NAMESPACED KIND VERBS
+	fr.outputs["api-resources --verbs=list"] = strings.Join([]string{
+		"NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS",
+		"bgppeers                          bgpp        metallb.io      true         BGPPeer      [list get]",
+		"nodes                                           	             false        Node         [list get]",
+	}, "\n")
+	// discovery for canonical resource
+	fr.outputs["get bgppeers.metallb.io -o json"] = discoveryJSON("peer1")
+	// singular form should resolve to plural.group
+	opts := CLIOptions{Verb: VerbGet, Resource: "bgppeer", Include: []string{"*"}, Mode: MatchGlob}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Ensure get targeted the canonical name
+	saw := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "bgppeers.metallb.io" && c[2] == "-o" {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatalf("expected discovery to use canonical plural.group; calls=%v", fr.calls)
+	}
+	// shortname should also resolve
+	fr.calls = nil
+	if err := runCommand(fr, CLIOptions{Verb: VerbGet, Resource: "bgpp", Include: []string{"*"}, Mode: MatchGlob}); err != nil {
+		t.Fatal(err)
+	}
+	saw = false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "get" && c[1] == "bgppeers.metallb.io" && c[2] == "-o" {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatalf("expected shortname to resolve to canonical; calls=%v", fr.calls)
+	}
 }
 
 func TestResolveCanonical_PassThroughGroupQualified(t *testing.T) {
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    fr.outputs["api-resources -o name --verbs=list"] = "bgppeers.metallb.io\nservices\n"
-    got, err := resolveCanonicalResource(fr, "bgppeers.metallb.io")
-    if err != nil {
-        t.Fatal(err)
-    }
-    if got != "bgppeers.metallb.io" {
-        t.Fatalf("expected pass-through, got %s", got)
-    }
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	fr.outputs["api-resources -o name --verbs=list"] = "bgppeers.metallb.io\nservices\n"
+	got, err := resolveCanonicalResource(fr, "bgppeers.metallb.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "bgppeers.metallb.io" {
+		t.Fatalf("expected pass-through, got %s", got)
+	}
 }
 
 func TestIsResourceNamespaced_NamespacedTrue(t *testing.T) {
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "configmaps\n"
-    fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\n"
-    ns, err := isResourceNamespaced(fr, "configmaps")
-    if err != nil {
-        t.Fatal(err)
-    }
-    if !ns {
-        t.Fatal("expected namespaced=true for configmaps")
-    }
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "configmaps\n"
+	fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\n"
+	ns, err := isResourceNamespaced(fr, "configmaps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ns {
+		t.Fatal("expected namespaced=true for configmaps")
+	}
 }
 
 func TestMatcher_NamespaceAllowed_ExactAndRegex(t *testing.T) {
-    m := Matcher{NsExact: []string{"dev"}}
-    if !m.NamespaceAllowed("dev") || m.NamespaceAllowed("prod") {
-        t.Fatal("NsExact failed")
-    }
-    m = Matcher{NsRegex: []*regexp.Regexp{regexp.MustCompile("^prod-.*$")}}
-    if !m.NamespaceAllowed("prod-a") || m.NamespaceAllowed("dev") {
-        t.Fatal("NsRegex failed")
-    }
+	m := Matcher{NsExact: []string{"dev"}}
+	if !m.NamespaceAllowed("dev") || m.NamespaceAllowed("prod") {
+		t.Fatal("NsExact failed")
+	}
+	m = Matcher{NsRegex: []*regexp.Regexp{regexp.MustCompile("^prod-.*$")}}
+	if !m.NamespaceAllowed("prod-a") || m.NamespaceAllowed("dev") {
+		t.Fatal("NsRegex failed")
+	}
 }
 
 func TestFilterAndStripNamespaceFlags(t *testing.T) {
-    flags := []string{"-o", "json", "--output", "yaml", "-n", "default", "-A", "--all-namespaces"}
-    filtered := filterOutputFlags(flags)
-    joined := " " + strings.Join(filtered, " ") + " "
-    if strings.Contains(joined, " -o ") || strings.Contains(joined, " --output ") {
-        t.Fatalf("output flags not filtered: %v", filtered)
-    }
-    if !strings.Contains(joined, " -n ") || !strings.Contains(joined, " -A ") {
-        t.Fatalf("unexpected removal beyond output flags: %v", filtered)
-    }
-    if s := stripNamespaceFlag(filtered); strings.Contains(" "+strings.Join(s, " ")+" ", " -n ") {
-        t.Fatalf("-n not stripped: %v", s)
-    }
-    if s := stripAllNamespacesFlag(filtered); strings.Contains(" "+strings.Join(s, " ")+" ", " -A ") {
-        t.Fatalf("-A not stripped: %v", s)
-    }
+	flags := []string{"-o", "json", "--output", "yaml", "-n", "default", "-A", "--all-namespaces"}
+	filtered := filterOutputFlags(flags)
+	joined := " " + strings.Join(filtered, " ") + " "
+	if strings.Contains(joined, " -o ") || strings.Contains(joined, " --output ") {
+		t.Fatalf("output flags not filtered: %v", filtered)
+	}
+	if !strings.Contains(joined, " -n ") || !strings.Contains(joined, " -A ") {
+		t.Fatalf("unexpected removal beyond output flags: %v", filtered)
+	}
+	if s := stripNamespaceFlag(filtered); strings.Contains(" "+strings.Join(s, " ")+" ", " -n ") {
+		t.Fatalf("-n not stripped: %v", s)
+	}
+	if s := stripAllNamespacesFlag(filtered); strings.Contains(" "+strings.Join(s, " ")+" ", " -A ") {
+		t.Fatalf("-A not stripped: %v", s)
+	}
 }
 
 func TestPrintLabelSummary_WritesCounts(t *testing.T) {
-    tmp, err := os.CreateTemp("", "wild-summary-*.txt")
-    if err != nil {
-        t.Fatal(err)
-    }
-    defer os.Remove(tmp.Name())
-    matched := []matchedRef{
-        {ns: "ns1", name: "a", labels: map[string]string{"app": "web"}},
-        {ns: "ns1", name: "b", labels: map[string]string{"app": "web"}},
-        {ns: "ns2", name: "c", labels: map[string]string{"app": "api"}},
-    }
-    opts := CLIOptions{GroupByLabel: "app", ColorizeLabels: false}
-    printLabelSummary(tmp, opts, matched)
-    tmp.Close()
-    data, err := os.ReadFile(tmp.Name())
-    if err != nil {
-        t.Fatal(err)
-    }
-    s := string(data)
-    if !strings.Contains(s, "web → 2") || !strings.Contains(s, "api → 1") {
-        t.Fatalf("unexpected summary: %s", s)
-    }
+	tmp, err := os.CreateTemp("", "wild-summary-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmp.Name())
+	matched := []matchedRef{
+		{ns: "ns1", name: "a", labels: map[string]string{"app": "web"}},
+		{ns: "ns1", name: "b", labels: map[string]string{"app": "web"}},
+		{ns: "ns2", name: "c", labels: map[string]string{"app": "api"}},
+	}
+	opts := CLIOptions{GroupByLabel: "app", ColorizeLabels: false}
+	printLabelSummary(tmp, opts, matched)
+	tmp.Close()
+	data, err := os.ReadFile(tmp.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "web → 2") || !strings.Contains(s, "api → 1") {
+		t.Fatalf("unexpected summary: %s", s)
+	}
 }
 
 func TestCompareIntExpr_AllOps(t *testing.T) {
-    if !compareIntExpr(5, ">3") {
-        t.Fatal("> failed")
-    }
-    if !compareIntExpr(5, ">=5") {
-        t.Fatal(">= failed")
-    }
-    if !compareIntExpr(3, "<5") {
-        t.Fatal("< failed")
-    }
-    if !compareIntExpr(3, "<=3") {
-        t.Fatal("<= failed")
-    }
-    if !compareIntExpr(3, "=3") || !compareIntExpr(3, "3") {
-        t.Fatal("= or bare number failed")
-    }
-    if compareIntExpr(3, ">x") {
-        t.Fatal("invalid should be false")
-    }
+	if !compareIntExpr(5, ">3") {
+		t.Fatal("> failed")
+	}
+	if !compareIntExpr(5, ">=5") {
+		t.Fatal(">= failed")
+	}
+	if !compareIntExpr(3, "<5") {
+		t.Fatal("< failed")
+	}
+	if !compareIntExpr(3, "<=3") {
+		t.Fatal("<= failed")
+	}
+	if !compareIntExpr(3, "=3") || !compareIntExpr(3, "3") {
+		t.Fatal("= or bare number failed")
+	}
+	if compareIntExpr(3, ">x") {
+		t.Fatal("invalid should be false")
+	}
 }
 
 func TestNodeAllowed_ExactAndRegex(t *testing.T) {
-    nodeExact := []string{"n1"}
-    nodePrefix := []string{}
-    nodeRegexes := []*regexp.Regexp{}
-    if !nodeAllowed("n1", nodeExact, nodePrefix, nodeRegexes) || nodeAllowed("n2", nodeExact, nodePrefix, nodeRegexes) {
-        t.Fatal("exact node match failed")
-    }
-    nodeExact = []string{}
-    nodeRegexes = []*regexp.Regexp{regexp.MustCompile("^work-\\d+$")}
-    if !nodeAllowed("work-1", nodeExact, nodePrefix, nodeRegexes) || nodeAllowed("x", nodeExact, nodePrefix, nodeRegexes) {
-        t.Fatal("regex node match failed")
-    }
+	nodeExact := []string{"n1"}
+	nodePrefix := []string{}
+	nodeRegexes := []*regexp.Regexp{}
+	if !nodeAllowed("n1", nodeExact, nodePrefix, nodeRegexes) || nodeAllowed("n2", nodeExact, nodePrefix, nodeRegexes) {
+		t.Fatal("exact node match failed")
+	}
+	nodeExact = []string{}
+	nodeRegexes = []*regexp.Regexp{regexp.MustCompile("^work-\\d+$")}
+	if !nodeAllowed("work-1", nodeExact, nodePrefix, nodeRegexes) || nodeAllowed("x", nodeExact, nodePrefix, nodeRegexes) {
+		t.Fatal("regex node match failed")
+	}
 }
 
 func TestMatcher_RegexIgnoreCase(t *testing.T) {
-    m := Matcher{Mode: MatchRegex, Includes: []string{"^api$"}, IgnoreCase: true}
-    if !m.Matches("API") || m.Matches("XAPI") {
-        t.Fatal("regex ignore-case failed")
-    }
+	m := Matcher{Mode: MatchRegex, Includes: []string{"^api$"}, IgnoreCase: true}
+	if !m.Matches("API") || m.Matches("XAPI") {
+		t.Fatal("regex ignore-case failed")
+	}
 }
 
 func TestReasonsMatch_Unscoped_AllRequired(t *testing.T) {
-    r := NameRef{PodReasons: []string{"Running", "CrashLoopBackOff", "OOMKilled"}}
-    if !reasonsMatch(r, []string{"OOMKilled", "CrashLoopBackOff"}, "") {
-        t.Fatal("reasons AND logic failed")
-    }
-    if reasonsMatch(r, []string{"Pending", "OOMKilled"}, "") {
-        t.Fatal("reasons should not match")
-    }
+	r := NameRef{PodReasons: []string{"Running", "CrashLoopBackOff", "OOMKilled"}}
+	if !reasonsMatch(r, []string{"OOMKilled", "CrashLoopBackOff"}, "") {
+		t.Fatal("reasons AND logic failed")
+	}
+	if reasonsMatch(r, []string{"Pending", "OOMKilled"}, "") {
+		t.Fatal("reasons should not match")
+	}
 }
 
 func TestEnsureAllNamespacesFlag_AddsWhenMissing(t *testing.T) {
-    flags := []string{"-o", "wide"}
-    got := ensureAllNamespacesFlag(flags)
-    joined := " " + strings.Join(got, " ") + " "
-    if !strings.Contains(joined, " -A ") {
-        t.Fatal("-A not added")
-    }
+	flags := []string{"-o", "wide"}
+	got := ensureAllNamespacesFlag(flags)
+	joined := " " + strings.Join(got, " ") + " "
+	if !strings.Contains(joined, " -A ") {
+		t.Fatal("-A not added")
+	}
 }
 
 func TestDescribeClusterScoped_AllNamespaces_NoNamespaceFlag(t *testing.T) {
-    clearResourceCaches()
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    // api-resources: nodes cluster-scoped
-    fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\n"
-    fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\n"
-    fr.outputs["api-resources --verbs=list"] = "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS\npods                              po           core           true         Pod          [list get]\nnodes                                           	             false        Node         [list get]\n"
-    // discovery
-    fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
-    opts := CLIOptions{Verb: VerbDescribe, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
-    opts.DiscoveryFlags = []string{"-A"}
-    if err := runCommand(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    // Expect a describe call without -A/-n and with both names
-    saw := false
-    for _, c := range fr.calls {
-        if len(c) >= 3 && c[0] == "describe" && c[1] == "nodes" {
-            joined := " " + strings.Join(c, " ") + " "
-            if !strings.Contains(joined, " -A ") && !strings.Contains(joined, " -n ") && strings.Contains(joined, " n1 ") && strings.Contains(joined, " n2 ") {
-                saw = true
-            }
-        }
-    }
-    if !saw {
-        t.Fatalf("expected describe nodes without -A/-n; calls=%v", fr.calls)
-    }
+	clearResourceCaches()
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	// api-resources: nodes cluster-scoped
+	fr.outputs["api-resources -o name --verbs=list --namespaced=true"] = "pods\n"
+	fr.outputs["api-resources -o name --verbs=list --namespaced=false"] = "nodes\n"
+	fr.outputs["api-resources --verbs=list"] = "NAME                              SHORTNAMES   APIGROUP        NAMESPACED   KIND         VERBS\npods                              po           core           true         Pod          [list get]\nnodes                                           	             false        Node         [list get]\n"
+	// discovery
+	fr.outputs["get nodes -o json"] = "{\"items\":[{\"metadata\":{\"name\":\"n1\"}},{\"metadata\":{\"name\":\"n2\"}}]}"
+	opts := CLIOptions{Verb: VerbDescribe, Resource: "nodes", Include: []string{"*"}, Mode: MatchGlob, AllNamespaces: true}
+	opts.DiscoveryFlags = []string{"-A"}
+	if err := runCommand(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Expect a describe call without -A/-n and with both names
+	saw := false
+	for _, c := range fr.calls {
+		if len(c) >= 3 && c[0] == "describe" && c[1] == "nodes" {
+			joined := " " + strings.Join(c, " ") + " "
+			if !strings.Contains(joined, " -A ") && !strings.Contains(joined, " -n ") && strings.Contains(joined, " n1 ") && strings.Contains(joined, " n2 ") {
+				saw = true
+			}
+		}
+	}
+	if !saw {
+		t.Fatalf("expected describe nodes without -A/-n; calls=%v", fr.calls)
+	}
 }
 
 func TestColorize_Functions(t *testing.T) {
-    s := colorize("x", true, false)
-    if !strings.Contains(s, "\x1b[") {
-        t.Fatal("expected ansi color")
-    }
-    if colorize("x", true, true) != "x" {
-        t.Fatal("no-color should passthrough")
-    }
-    if colorForValue("abc") == colorForValue("abc") {
-        // same value deterministic, but we cannot assert specific code; ensure non-empty
-    }
+	s := colorize("x", true, false)
+	if !strings.Contains(s, "\x1b[") {
+		t.Fatal("expected ansi color")
+	}
+	if colorize("x", true, true) != "x" {
+		t.Fatal("no-color should passthrough")
+	}
+	if colorForValue("abc") == colorForValue("abc") {
+		// same value deterministic, but we cannot assert specific code; ensure non-empty
+	}
 }
 
 func TestGlobToRegex_Mapping(t *testing.T) {
-    re := globToRegex("*prod?")
-    if re != ".*prod." && re != "^.*prod.$" { // allow either if caret/dollar added in code
-        // Our implementation wraps with ^ and $, so enforce that
-    }
-    re = globToRegex("prod-*")
-    if re != "^prod-.*$" {
-        t.Fatalf("unexpected regex: %s", re)
-    }
+	re := globToRegex("*prod?")
+	if re != ".*prod." && re != "^.*prod.$" { // allow either if caret/dollar added in code
+		// Our implementation wraps with ^ and $, so enforce that
+	}
+	re = globToRegex("prod-*")
+	if re != "^prod-.*$" {
+		t.Fatalf("unexpected regex: %s", re)
+	}
 }
 
 func TestFilterOutputFlags_EqualsForms(t *testing.T) {
-    flags := []string{"-o=json", "--output=yaml", "--output=jsonpath={.items[*].metadata.name}", "-n", "ns"}
-    got := filterOutputFlags(flags)
-    joined := " " + strings.Join(got, " ") + " "
-    if strings.Contains(joined, " -o=") || strings.Contains(joined, " --output=") || strings.Contains(joined, " --output ") {
-        t.Fatalf("output flags with equals not filtered: %v", got)
-    }
+	flags := []string{"-o=json", "--output=yaml", "--output=jsonpath={.items[*].metadata.name}", "-n", "ns"}
+	got := filterOutputFlags(flags)
+	joined := " " + strings.Join(got, " ") + " "
+	if strings.Contains(joined, " -o=") || strings.Contains(joined, " --output=") || strings.Contains(joined, " --output ") {
+		t.Fatalf("output flags with equals not filtered: %v", got)
+	}
 }
 
 func TestRunBatched_Logs(t *testing.T) {
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    if err := runBatched(fr, "logs", "pods", []string{"p1", "p2"}, nil, nil, 10, false); err != nil {
-        t.Fatal(err)
-    }
-    // Expect two calls: logs p1 and logs p2
-    seen := 0
-    for _, c := range fr.calls {
-        if len(c) >= 2 && c[0] == "logs" && (c[1] == "p1" || c[1] == "p2") {
-            seen++
-        }
-    }
-    if seen != 2 {
-        t.Fatalf("expected 2 logs calls, got %d: %v", seen, fr.calls)
-    }
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	if err := runBatched(fr, "logs", "pods", []string{"p1", "p2"}, nil, nil, 10, false); err != nil {
+		t.Fatal(err)
+	}
+	// Expect two calls: logs p1 and logs p2
+	seen := 0
+	for _, c := range fr.calls {
+		if len(c) >= 2 && c[0] == "logs" && (c[1] == "p1" || c[1] == "p2") {
+			seen++
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("expected 2 logs calls, got %d: %v", seen, fr.calls)
+	}
 }
 
 func TestEnsureAllNamespacesFlag_NoDuplicate(t *testing.T) {
-    flags := []string{"-A", "-o", "json"}
-    got := ensureAllNamespacesFlag(flags)
-    // Should remain single -A
-    count := 0
-    for _, f := range got {
-        if f == "-A" || f == "--all-namespaces" {
-            count++
-        }
-    }
-    if count != 1 {
-        t.Fatalf("expected single -A, got %v", got)
-    }
+	flags := []string{"-A", "-o", "json"}
+	got := ensureAllNamespacesFlag(flags)
+	// Should remain single -A
+	count := 0
+	for _, f := range got {
+		if f == "-A" || f == "--all-namespaces" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected single -A, got %v", got)
+	}
 }
 
 func TestContainsFlag(t *testing.T) {
-    flags := []string{"-o", "wide", "-L", "app", "--no-headers"}
-    if !containsFlag(flags, "-L") {
-        t.Error("containsFlag: should find -L")
-    }
-    if !containsFlag(flags, "-o") {
-        t.Error("containsFlag: should find -o")
-    }
-    if containsFlag(flags, "-n") {
-        t.Error("containsFlag: should not find -n")
-    }
-    if containsFlag(flags, "nonexistent") {
-        t.Error("containsFlag: should not find nonexistent flag")
-    }
-    if containsFlag([]string{}, "-L") {
-        t.Error("containsFlag: should not find flag in empty slice")
-    }
+	flags := []string{"-o", "wide", "-L", "app", "--no-headers"}
+	if !containsFlag(flags, "-L") {
+		t.Error("containsFlag: should find -L")
+	}
+	if !containsFlag(flags, "-o") {
+		t.Error("containsFlag: should find -o")
+	}
+	if containsFlag(flags, "-n") {
+		t.Error("containsFlag: should not find -n")
+	}
+	if containsFlag(flags, "nonexistent") {
+		t.Error("containsFlag: should not find nonexistent flag")
+	}
+	if containsFlag([]string{}, "-L") {
+		t.Error("containsFlag: should not find flag in empty slice")
+	}
 }
 
 func TestContainsFlagWithPrefix(t *testing.T) {
-    flags := []string{"-o=wide", "-L=app", "--output=json", "-n", "default"}
-    if !containsFlagWithPrefix(flags, "-L=") {
-        t.Error("containsFlagWithPrefix: should find -L=")
-    }
-    if !containsFlagWithPrefix(flags, "-o=") {
-        t.Error("containsFlagWithPrefix: should find -o=")
-    }
-    if !containsFlagWithPrefix(flags, "--output=") {
-        t.Error("containsFlagWithPrefix: should find --output=")
-    }
-    if containsFlagWithPrefix(flags, "-x=") {
-        t.Error("containsFlagWithPrefix: should not find -x=")
-    }
-    if containsFlagWithPrefix([]string{}, "-L=") {
-        t.Error("containsFlagWithPrefix: should not find prefix in empty slice")
-    }
+	flags := []string{"-o=wide", "-L=app", "--output=json", "-n", "default"}
+	if !containsFlagWithPrefix(flags, "-L=") {
+		t.Error("containsFlagWithPrefix: should find -L=")
+	}
+	if !containsFlagWithPrefix(flags, "-o=") {
+		t.Error("containsFlagWithPrefix: should find -o=")
+	}
+	if !containsFlagWithPrefix(flags, "--output=") {
+		t.Error("containsFlagWithPrefix: should find --output=")
+	}
+	if containsFlagWithPrefix(flags, "-x=") {
+		t.Error("containsFlagWithPrefix: should not find -x=")
+	}
+	if containsFlagWithPrefix([]string{}, "-L=") {
+		t.Error("containsFlagWithPrefix: should not find prefix in empty slice")
+	}
 }
 
 func TestRunVerbPassthrough(t *testing.T) {
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    
-    // Test basic passthrough
-    opts := CLIOptions{
-        Verb:         VerbGet,
-        Resource:     "pods",
-        DiscoveryFlags: []string{"-n", "default"},
-        FinalFlags:   []string{"-o", "wide"},
-        ExtraFinal:   []string{"--", "extra"},
-    }
-    if err := runVerbPassthrough(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    expected := []string{"get", "pods", "-n", "default", "-o", "wide", "--", "extra"}
-    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
-        t.Fatalf("passthrough failed; got %v, expected %v", fr.calls, [][]string{expected})
-    }
-    
-    // Test with GroupByLabel
-    fr.calls = [][]string{}
-    opts.GroupByLabel = "app"
-    opts.FinalFlags = []string{"-o", "wide"}
-    if err := runVerbPassthrough(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    expected = []string{"get", "pods", "-L", "app", "-n", "default", "-o", "wide", "--", "extra"}
-    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
-        t.Fatalf("passthrough with GroupByLabel failed; got %v, expected %v", fr.calls, [][]string{expected})
-    }
-    
-    // Test with GroupByLabel when -L already present
-    fr.calls = [][]string{}
-    opts.FinalFlags = []string{"-L", "env", "-o", "wide"}
-    if err := runVerbPassthrough(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    expected = []string{"get", "pods", "-n", "default", "-L", "env", "-o", "wide", "--", "extra"}
-    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
-        t.Fatalf("passthrough with existing -L failed; got %v, expected %v", fr.calls, [][]string{expected})
-    }
-    
-    // Test with GroupByLabel when -L= already present
-    fr.calls = [][]string{}
-    opts.FinalFlags = []string{"-L=env", "-o", "wide"}
-    if err := runVerbPassthrough(fr, opts); err != nil {
-        t.Fatal(err)
-    }
-    expected = []string{"get", "pods", "-n", "default", "-L=env", "-o", "wide", "--", "extra"}
-    if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
-        t.Fatalf("passthrough with existing -L= failed; got %v, expected %v", fr.calls, [][]string{expected})
-    }
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+
+	// Test basic passthrough
+	opts := CLIOptions{
+		Verb:           VerbGet,
+		Resource:       "pods",
+		DiscoveryFlags: []string{"-n", "default"},
+		FinalFlags:     []string{"-o", "wide"},
+		ExtraFinal:     []string{"--", "extra"},
+	}
+	if err := runVerbPassthrough(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	expected := []string{"get", "pods", "-n", "default", "-o", "wide", "--", "extra"}
+	if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+		t.Fatalf("passthrough failed; got %v, expected %v", fr.calls, [][]string{expected})
+	}
+
+	// Test with GroupByLabel
+	fr.calls = [][]string{}
+	opts.GroupByLabel = "app"
+	opts.FinalFlags = []string{"-o", "wide"}
+	if err := runVerbPassthrough(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	expected = []string{"get", "pods", "-L", "app", "-n", "default", "-o", "wide", "--", "extra"}
+	if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+		t.Fatalf("passthrough with GroupByLabel failed; got %v, expected %v", fr.calls, [][]string{expected})
+	}
+
+	// Test with GroupByLabel when -L already present
+	fr.calls = [][]string{}
+	opts.FinalFlags = []string{"-L", "env", "-o", "wide"}
+	if err := runVerbPassthrough(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	expected = []string{"get", "pods", "-n", "default", "-L", "env", "-o", "wide", "--", "extra"}
+	if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+		t.Fatalf("passthrough with existing -L failed; got %v, expected %v", fr.calls, [][]string{expected})
+	}
+
+	// Test with GroupByLabel when -L= already present
+	fr.calls = [][]string{}
+	opts.FinalFlags = []string{"-L=env", "-o", "wide"}
+	if err := runVerbPassthrough(fr, opts); err != nil {
+		t.Fatal(err)
+	}
+	expected = []string{"get", "pods", "-n", "default", "-L=env", "-o", "wide", "--", "extra"}
+	if len(fr.calls) != 1 || !equalSlices(fr.calls[0], expected) {
+		t.Fatalf("passthrough with existing -L= failed; got %v, expected %v", fr.calls, [][]string{expected})
+	}
 }
 
 func equalSlices(a, b []string) bool {
-    if len(a) != len(b) {
-        return false
-    }
-    for i := range a {
-        if a[i] != b[i] {
-            return false
-        }
-    }
-    return true
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestMatchSingle_AllModes(t *testing.T) {
-    // Test MatchGlob
-    if !matchSingle(MatchGlob, false, "web-1", "web-*") {
-        t.Error("MatchGlob: web-1 should match web-*")
-    }
-    if matchSingle(MatchGlob, false, "api-1", "web-*") {
-        t.Error("MatchGlob: api-1 should not match web-*")
-    }
-    
-    // Test MatchGlob with ignoreCase (target should be lowercased before calling matchSingle)
-    if !matchSingle(MatchGlob, true, "web-1", "web-*") {
-        t.Error("MatchGlob ignoreCase: web-1 should match web-*")
-    }
-    
-    // Test MatchRegex
-    if !matchSingle(MatchRegex, false, "api-1", "^api-") {
-        t.Error("MatchRegex: api-1 should match ^api-")
-    }
-    if matchSingle(MatchRegex, false, "web-1", "^api-") {
-        t.Error("MatchRegex: web-1 should not match ^api-")
-    }
-    
-    // Test MatchRegex with ignoreCase (target should be lowercased before calling matchSingle)
-    if !matchSingle(MatchRegex, true, "api-1", "^api-") {
-        t.Error("MatchRegex ignoreCase: api-1 should match ^api-")
-    }
-    
-    // Test MatchContains
-    if !matchSingle(MatchContains, false, "api-1", "pi-") {
-        t.Error("MatchContains: api-1 should contain pi-")
-    }
-    if matchSingle(MatchContains, false, "web-1", "pi-") {
-        t.Error("MatchContains: web-1 should not contain pi-")
-    }
-    
-    // Test MatchContains with ignoreCase (target should be lowercased before calling matchSingle)
-    if !matchSingle(MatchContains, true, "api-1", "pi-") {
-        t.Error("MatchContains ignoreCase: api-1 should contain pi-")
-    }
-    
-    // Test MatchFuzzy
-    if !matchSingle(MatchFuzzy, false, "api-1", "apu-1") {
-        t.Error("MatchFuzzy: api-1 should fuzzy match apu-1")
-    }
-    if matchSingle(MatchFuzzy, false, "web-1", "apu-1") {
-        t.Error("MatchFuzzy: web-1 should not fuzzy match apu-1")
-    }
-    
-    // Test default case (should use glob)
-    if !matchSingle(MatchMode(999), false, "web-1", "web-*") {
-        t.Error("Default mode: should fallback to glob")
-    }
+	// Test MatchGlob
+	if !matchSingle(MatchGlob, false, "web-1", "web-*") {
+		t.Error("MatchGlob: web-1 should match web-*")
+	}
+	if matchSingle(MatchGlob, false, "api-1", "web-*") {
+		t.Error("MatchGlob: api-1 should not match web-*")
+	}
+
+	// Test MatchGlob with ignoreCase (target should be lowercased before calling matchSingle)
+	if !matchSingle(MatchGlob, true, "web-1", "web-*") {
+		t.Error("MatchGlob ignoreCase: web-1 should match web-*")
+	}
+
+	// Test MatchRegex
+	if !matchSingle(MatchRegex, false, "api-1", "^api-") {
+		t.Error("MatchRegex: api-1 should match ^api-")
+	}
+	if matchSingle(MatchRegex, false, "web-1", "^api-") {
+		t.Error("MatchRegex: web-1 should not match ^api-")
+	}
+
+	// Test MatchRegex with ignoreCase (target should be lowercased before calling matchSingle)
+	if !matchSingle(MatchRegex, true, "api-1", "^api-") {
+		t.Error("MatchRegex ignoreCase: api-1 should match ^api-")
+	}
+
+	// Test MatchContains
+	if !matchSingle(MatchContains, false, "api-1", "pi-") {
+		t.Error("MatchContains: api-1 should contain pi-")
+	}
+	if matchSingle(MatchContains, false, "web-1", "pi-") {
+		t.Error("MatchContains: web-1 should not contain pi-")
+	}
+
+	// Test MatchContains with ignoreCase (target should be lowercased before calling matchSingle)
+	if !matchSingle(MatchContains, true, "api-1", "pi-") {
+		t.Error("MatchContains ignoreCase: api-1 should contain pi-")
+	}
+
+	// Test MatchFuzzy
+	if !matchSingle(MatchFuzzy, false, "api-1", "apu-1") {
+		t.Error("MatchFuzzy: api-1 should fuzzy match apu-1")
+	}
+	if matchSingle(MatchFuzzy, false, "web-1", "apu-1") {
+		t.Error("MatchFuzzy: web-1 should not fuzzy match apu-1")
+	}
+
+	// Test default case (should use glob)
+	if !matchSingle(MatchMode(999), false, "web-1", "web-*") {
+		t.Error("Default mode: should fallback to glob")
+	}
 }
 
 func TestResourceScopeCache_Used(t *testing.T) {
-    // Seed cache and verify lookup does not require runner outputs
-    resourceScopeCache[strings.ToLower("crd.example.com")] = false
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    ns, err := isResourceNamespaced(fr, "crd.example.com")
-    if err != nil {
-        t.Fatal(err)
-    }
-    if ns {
-        t.Fatal("expected cluster-scoped from cache")
-    }
+	// Seed cache and verify lookup does not require runner outputs
+	resourceScopeCache[strings.ToLower("crd.example.com")] = false
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	ns, err := isResourceNamespaced(fr, "crd.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns {
+		t.Fatal("expected cluster-scoped from cache")
+	}
 }
 
 func TestResourceCanonicalCache_Used(t *testing.T) {
-    resourceCanonicalCache[strings.ToLower("foo")] = "things.example.com"
-    fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
-    got, err := resolveCanonicalResource(fr, "foo")
-    if err != nil {
-        t.Fatal(err)
-    }
-    if got != "things.example.com" {
-        t.Fatalf("expected cached canonical, got %s", got)
-    }
+	resourceCanonicalCache[strings.ToLower("foo")] = "things.example.com"
+	fr := &fakeRunner{outputs: map[string]string{}, errs: map[string]error{}}
+	got, err := resolveCanonicalResource(fr, "foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "things.example.com" {
+		t.Fatalf("expected cached canonical, got %s", got)
+	}
 }
 
 func TestNamespaceFilters_Applied(t *testing.T) {
@@ -1609,3 +1608,381 @@ func TestConfirmThreshold_Blocks(t *testing.T) {
 }
 
 // logs intentionally unsupported
+
+// TestAllCLIFlags tests all CLI flags promised in --help
+func TestAllCLIFlags(t *testing.T) {
+	testCases := []struct {
+		name     string
+		args     []string
+		validate func(opts CLIOptions) error
+	}{
+		// MATCHING FLAGS
+		{"--regex", []string{"get", "pods", "api-.*", "--regex"}, func(o CLIOptions) error {
+			if o.Mode != MatchRegex {
+				return fmt.Errorf("expected Mode=MatchRegex, got %v", o.Mode)
+			}
+			return nil
+		}},
+		{"--contains", []string{"get", "pods", "api", "--contains"}, func(o CLIOptions) error {
+			if o.Mode != MatchContains {
+				return fmt.Errorf("expected Mode=MatchContains, got %v", o.Mode)
+			}
+			return nil
+		}},
+		{"--fuzzy", []string{"get", "pods", "api", "--fuzzy"}, func(o CLIOptions) error {
+			if o.Mode != MatchFuzzy {
+				return fmt.Errorf("expected Mode=MatchFuzzy, got %v", o.Mode)
+			}
+			return nil
+		}},
+		{"--fuzzy-distance", []string{"get", "pods", "api", "--fuzzy", "--fuzzy-distance", "3"}, func(o CLIOptions) error {
+			if o.FuzzyMaxDistance != 3 {
+				return fmt.Errorf("expected FuzzyMaxDistance=3, got %v", o.FuzzyMaxDistance)
+			}
+			return nil
+		}},
+		{"-p (prefix)", []string{"get", "pods", "-p", "api"}, func(o CLIOptions) error {
+			if len(o.Include) == 0 || o.Include[0] != "api*" {
+				return fmt.Errorf("expected Include=[api*], got %v", o.Include)
+			}
+			return nil
+		}},
+		{"--prefix", []string{"get", "pods", "--prefix", "api"}, func(o CLIOptions) error {
+			if len(o.Include) == 0 || o.Include[0] != "api*" {
+				return fmt.Errorf("expected Include=[api*], got %v", o.Include)
+			}
+			return nil
+		}},
+		{"--match (repeatable)", []string{"get", "pods", "--match", "foo*", "--match", "bar*"}, func(o CLIOptions) error {
+			if !reflect.DeepEqual(o.Include, []string{"foo*", "bar*"}) {
+				return fmt.Errorf("expected Include=[foo* bar*], got %v", o.Include)
+			}
+			return nil
+		}},
+		{"--exclude (repeatable)", []string{"get", "pods", "*", "--exclude", "test*", "--exclude", "dev*"}, func(o CLIOptions) error {
+			if !reflect.DeepEqual(o.Exclude, []string{"test*", "dev*"}) {
+				return fmt.Errorf("expected Exclude=[test* dev*], got %v", o.Exclude)
+			}
+			return nil
+		}},
+		{"--ignore-case", []string{"get", "pods", "API*", "--ignore-case"}, func(o CLIOptions) error {
+			if !o.IgnoreCase {
+				return fmt.Errorf("expected IgnoreCase=true")
+			}
+			return nil
+		}},
+
+		// SCOPE FLAGS
+		{"-n (namespace)", []string{"get", "pods", "x*", "-n", "default"}, func(o CLIOptions) error {
+			if o.Namespace != "default" {
+				return fmt.Errorf("expected Namespace=default, got %v", o.Namespace)
+			}
+			return nil
+		}},
+		{"--namespace", []string{"get", "pods", "x*", "--namespace", "default"}, func(o CLIOptions) error {
+			if o.Namespace != "default" {
+				return fmt.Errorf("expected Namespace=default, got %v", o.Namespace)
+			}
+			return nil
+		}},
+		{"-n=value form", []string{"get", "pods", "x*", "-n=default"}, func(o CLIOptions) error {
+			if o.Namespace != "default" {
+				return fmt.Errorf("expected Namespace=default, got %v", o.Namespace)
+			}
+			return nil
+		}},
+		{"--namespace=value form", []string{"get", "pods", "x*", "--namespace=default"}, func(o CLIOptions) error {
+			if o.Namespace != "default" {
+				return fmt.Errorf("expected Namespace=default, got %v", o.Namespace)
+			}
+			return nil
+		}},
+		{"-n with wildcard", []string{"get", "pods", "x*", "-n", "prod-*"}, func(o CLIOptions) error {
+			if !o.AllNamespaces {
+				return fmt.Errorf("expected AllNamespaces=true for wildcard ns")
+			}
+			if len(o.NsPrefix) == 0 || o.NsPrefix[0] != "prod-" {
+				return fmt.Errorf("expected NsPrefix=[prod-], got %v", o.NsPrefix)
+			}
+			return nil
+		}},
+		{"-A", []string{"get", "pods", "x*", "-A"}, func(o CLIOptions) error {
+			if !o.AllNamespaces {
+				return fmt.Errorf("expected AllNamespaces=true")
+			}
+			return nil
+		}},
+		{"--all-namespaces", []string{"get", "pods", "x*", "--all-namespaces"}, func(o CLIOptions) error {
+			if !o.AllNamespaces {
+				return fmt.Errorf("expected AllNamespaces=true")
+			}
+			return nil
+		}},
+		{"--ns (repeatable)", []string{"get", "pods", "x*", "--ns", "default", "--ns", "kube-system", "-A"}, func(o CLIOptions) error {
+			if !reflect.DeepEqual(o.NsExact, []string{"default", "kube-system"}) {
+				return fmt.Errorf("expected NsExact=[default kube-system], got %v", o.NsExact)
+			}
+			return nil
+		}},
+		{"--ns-prefix", []string{"get", "pods", "x*", "--ns-prefix", "prod", "-A"}, func(o CLIOptions) error {
+			if len(o.NsPrefix) == 0 || o.NsPrefix[0] != "prod" {
+				return fmt.Errorf("expected NsPrefix=[prod], got %v", o.NsPrefix)
+			}
+			return nil
+		}},
+		{"--ns-regex", []string{"get", "pods", "x*", "--ns-regex", "^prod-", "-A"}, func(o CLIOptions) error {
+			if len(o.NsRegex) == 0 {
+				return fmt.Errorf("expected NsRegex to be set, got %v", o.NsRegex)
+			}
+			return nil
+		}},
+
+		// LABEL FLAGS
+		{"--label key=glob", []string{"get", "pods", "*", "--label", "app=web*", "-A"}, func(o CLIOptions) error {
+			if len(o.LabelFilters) == 0 {
+				return fmt.Errorf("expected LabelFilters to be set")
+			}
+			return nil
+		}},
+		{"--label-prefix", []string{"get", "pods", "*", "--label-prefix", "app=web", "-A"}, func(o CLIOptions) error {
+			if len(o.LabelFilters) == 0 {
+				return fmt.Errorf("expected LabelFilters to be set")
+			}
+			return nil
+		}},
+		{"--label-contains", []string{"get", "pods", "*", "--label-contains", "app=web", "-A"}, func(o CLIOptions) error {
+			if len(o.LabelFilters) == 0 {
+				return fmt.Errorf("expected LabelFilters to be set")
+			}
+			return nil
+		}},
+		{"--label-regex", []string{"get", "pods", "*", "--label-regex", "app=^web", "-A"}, func(o CLIOptions) error {
+			if len(o.LabelFilters) == 0 {
+				return fmt.Errorf("expected LabelFilters to be set")
+			}
+			return nil
+		}},
+		{"--label-key-regex", []string{"get", "pods", "*", "--label-key-regex", "^app", "-A"}, func(o CLIOptions) error {
+			if len(o.LabelKeyRegex) == 0 {
+				return fmt.Errorf("expected LabelKeyRegex to be set")
+			}
+			return nil
+		}},
+		{"--group-by-label", []string{"get", "pods", "*", "--group-by-label", "app", "-A"}, func(o CLIOptions) error {
+			if o.GroupByLabel != "app" {
+				return fmt.Errorf("expected GroupByLabel=app, got %v", o.GroupByLabel)
+			}
+			return nil
+		}},
+		{"--colorize-labels", []string{"get", "pods", "*", "--colorize-labels", "--group-by-label", "app", "-A"}, func(o CLIOptions) error {
+			if !o.ColorizeLabels {
+				return fmt.Errorf("expected ColorizeLabels=true")
+			}
+			return nil
+		}},
+
+		// ANNOTATION FLAGS
+		{"--annotation", []string{"get", "pods", "*", "--annotation", "desc=prod*", "-A"}, func(o CLIOptions) error {
+			if len(o.AnnotationFilters) == 0 {
+				return fmt.Errorf("expected AnnotationFilters to be set")
+			}
+			return nil
+		}},
+		{"--annotation-prefix", []string{"get", "pods", "*", "--annotation-prefix", "desc=prod", "-A"}, func(o CLIOptions) error {
+			if len(o.AnnotationFilters) == 0 {
+				return fmt.Errorf("expected AnnotationFilters to be set")
+			}
+			return nil
+		}},
+		{"--annotation-contains", []string{"get", "pods", "*", "--annotation-contains", "desc=prod", "-A"}, func(o CLIOptions) error {
+			if len(o.AnnotationFilters) == 0 {
+				return fmt.Errorf("expected AnnotationFilters to be set")
+			}
+			return nil
+		}},
+		{"--annotation-regex", []string{"get", "pods", "*", "--annotation-regex", "desc=^prod", "-A"}, func(o CLIOptions) error {
+			if len(o.AnnotationFilters) == 0 {
+				return fmt.Errorf("expected AnnotationFilters to be set")
+			}
+			return nil
+		}},
+		{"--annotation-key-regex", []string{"get", "pods", "*", "--annotation-key-regex", "^desc", "-A"}, func(o CLIOptions) error {
+			if len(o.AnnotationKeyRegex) == 0 {
+				return fmt.Errorf("expected AnnotationKeyRegex to be set")
+			}
+			return nil
+		}},
+
+		// POD HEALTH FLAGS
+		{"--pod-status", []string{"get", "pods", "*", "--pod-status", "Running", "-A"}, func(o CLIOptions) error {
+			if len(o.PodStatuses) == 0 || o.PodStatuses[0] != "Running" {
+				return fmt.Errorf("expected PodStatuses=[Running], got %v", o.PodStatuses)
+			}
+			return nil
+		}},
+		{"--unhealthy", []string{"get", "pods", "*", "--unhealthy", "-A"}, func(o CLIOptions) error {
+			if !o.Unhealthy {
+				return fmt.Errorf("expected Unhealthy=true")
+			}
+			return nil
+		}},
+		{"--older-than", []string{"get", "pods", "*", "--older-than", "1h", "-A"}, func(o CLIOptions) error {
+			if o.OlderThan != time.Hour {
+				return fmt.Errorf("expected OlderThan=1h, got %v", o.OlderThan)
+			}
+			return nil
+		}},
+		{"--younger-than", []string{"get", "pods", "*", "--younger-than", "2h", "-A"}, func(o CLIOptions) error {
+			if o.YoungerThan != 2*time.Hour {
+				return fmt.Errorf("expected YoungerThan=2h, got %v", o.YoungerThan)
+			}
+			return nil
+		}},
+		{"--restarts", []string{"get", "pods", "*", "--restarts", ">0", "-A"}, func(o CLIOptions) error {
+			if o.RestartExpr == "" {
+				return fmt.Errorf("expected RestartExpr to be set")
+			}
+			return nil
+		}},
+		{"--containers-not-ready", []string{"get", "pods", "*", "--containers-not-ready", "-A"}, func(o CLIOptions) error {
+			if !o.ContainersNotReady {
+				return fmt.Errorf("expected ContainersNotReady=true")
+			}
+			return nil
+		}},
+		{"--reason", []string{"get", "pods", "*", "--reason", "OOMKilled", "-A"}, func(o CLIOptions) error {
+			if len(o.ReasonFilters) == 0 || o.ReasonFilters[0] != "OOMKilled" {
+				return fmt.Errorf("expected ReasonFilters=[OOMKilled], got %v", o.ReasonFilters)
+			}
+			return nil
+		}},
+		{"--container-name", []string{"get", "pods", "*", "--reason", "OOMKilled", "--container-name", "main", "-A"}, func(o CLIOptions) error {
+			if o.ContainerScope != "main" {
+				return fmt.Errorf("expected ContainerScope=main, got %v", o.ContainerScope)
+			}
+			return nil
+		}},
+
+		// NODE FLAGS
+		{"--node", []string{"get", "pods", "*", "--node", "node1", "-A"}, func(o CLIOptions) error {
+			if len(o.NodeExact) == 0 || o.NodeExact[0] != "node1" {
+				return fmt.Errorf("expected NodeExact=[node1], got %v", o.NodeExact)
+			}
+			return nil
+		}},
+		{"--node-prefix", []string{"get", "pods", "*", "--node-prefix", "node-", "-A"}, func(o CLIOptions) error {
+			if len(o.NodePrefix) == 0 || o.NodePrefix[0] != "node-" {
+				return fmt.Errorf("expected NodePrefix=[node-], got %v", o.NodePrefix)
+			}
+			return nil
+		}},
+		{"--node-regex", []string{"get", "pods", "*", "--node-regex", "^node-", "-A"}, func(o CLIOptions) error {
+			if len(o.NodeRegex) == 0 {
+				return fmt.Errorf("expected NodeRegex to be set")
+			}
+			return nil
+		}},
+
+		// SAFETY FLAGS (delete)
+		{"--dry-run", []string{"delete", "pods", "test*", "--dry-run"}, func(o CLIOptions) error {
+			if !o.DryRun {
+				return fmt.Errorf("expected DryRun=true")
+			}
+			return nil
+		}},
+		{"--server-dry-run", []string{"delete", "pods", "test*", "--server-dry-run"}, func(o CLIOptions) error {
+			if !o.ServerDryRun {
+				return fmt.Errorf("expected ServerDryRun=true")
+			}
+			return nil
+		}},
+		{"--confirm-threshold", []string{"delete", "pods", "test*", "--confirm-threshold", "5"}, func(o CLIOptions) error {
+			if o.ConfirmThreshold != 5 {
+				return fmt.Errorf("expected ConfirmThreshold=5, got %v", o.ConfirmThreshold)
+			}
+			return nil
+		}},
+		{"--yes", []string{"delete", "pods", "test*", "--yes"}, func(o CLIOptions) error {
+			if !o.Yes {
+				return fmt.Errorf("expected Yes=true")
+			}
+			return nil
+		}},
+		{"-y", []string{"delete", "pods", "test*", "-y"}, func(o CLIOptions) error {
+			if !o.Yes {
+				return fmt.Errorf("expected Yes=true")
+			}
+			return nil
+		}},
+		{"--preview", []string{"delete", "pods", "test*", "--preview", "table"}, func(o CLIOptions) error {
+			if o.Preview != "table" {
+				return fmt.Errorf("expected Preview=table, got %v", o.Preview)
+			}
+			return nil
+		}},
+		{"--no-color", []string{"delete", "pods", "test*", "--no-color"}, func(o CLIOptions) error {
+			if !o.NoColor {
+				return fmt.Errorf("expected NoColor=true")
+			}
+			return nil
+		}},
+
+		// OTHER FLAGS
+		{"--batch-size", []string{"get", "pods", "*", "--batch-size", "50", "-A"}, func(o CLIOptions) error {
+			if o.BatchSize != 50 {
+				return fmt.Errorf("expected BatchSize=50, got %v", o.BatchSize)
+			}
+			return nil
+		}},
+		{"--debug", []string{"get", "pods", "*", "--debug"}, func(o CLIOptions) error {
+			if !o.Debug {
+				return fmt.Errorf("expected Debug=true")
+			}
+			return nil
+		}},
+
+		// PATTERN POSITION TESTS (the fix)
+		{"pattern before -n", []string{"get", "pods", "xyz*", "-n", "default"}, func(o CLIOptions) error {
+			if len(o.Include) == 0 || o.Include[0] != "xyz*" {
+				return fmt.Errorf("expected Include=[xyz*], got %v", o.Include)
+			}
+			if o.Namespace != "default" {
+				return fmt.Errorf("expected Namespace=default, got %v", o.Namespace)
+			}
+			return nil
+		}},
+		{"pattern after -n", []string{"get", "pods", "-n", "default", "xyz*"}, func(o CLIOptions) error {
+			if len(o.Include) == 0 || o.Include[0] != "xyz*" {
+				return fmt.Errorf("expected Include=[xyz*], got %v", o.Include)
+			}
+			if o.Namespace != "default" {
+				return fmt.Errorf("expected Namespace=default, got %v", o.Namespace)
+			}
+			return nil
+		}},
+		{"pattern after multiple flags", []string{"get", "pods", "-n", "default", "--ignore-case", "xyz*"}, func(o CLIOptions) error {
+			if len(o.Include) == 0 || o.Include[0] != "xyz*" {
+				return fmt.Errorf("expected Include=[xyz*], got %v", o.Include)
+			}
+			if o.Namespace != "default" {
+				return fmt.Errorf("expected Namespace=default, got %v", o.Namespace)
+			}
+			if !o.IgnoreCase {
+				return fmt.Errorf("expected IgnoreCase=true")
+			}
+			return nil
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := parseArgs(tc.args)
+			if err != nil {
+				t.Fatalf("parseArgs failed: %v", err)
+			}
+			if err := tc.validate(opts); err != nil {
+				t.Fatalf("validation failed: %v", err)
+			}
+		})
+	}
+}

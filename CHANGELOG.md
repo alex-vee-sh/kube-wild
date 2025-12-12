@@ -4,6 +4,24 @@
 
 # Changelog
 
+## v1.0.10
+- Performance optimizations (major improvements for large-scale workloads):
+  - Pre-computed filter grouping: label/annotation filter duplicate detection computed once before filtering loop (zero allocations in hot path)
+  - sync.Pool for strings.Builder: reusable string builders eliminate allocations for namespace/name concatenation
+  - Single-pass regex matching: label/annotation key regex filters checked in single iteration through labels/annotations with early exit
+  - Fast namespace/node exact matching: O(1) map-based lookup for 4+ exact namespaces/nodes (vs O(n) iteration)
+  - Optimized string comparisons: fast-path exact matches before case-insensitive matching in pod status filtering
+  - Pre-allocated slices: estimated capacity allocation for reasons, owners, and container maps in resource discovery
+  - Optimized fuzzy matching: strings.Builder for cumulative token building in fuzzy pattern matching
+- Accuracy improvements:
+  - Nil map handling: graceful handling of nil label/annotation maps (prevents panics, correct filtering behavior)
+  - Empty string handling: early exit optimization for empty targets in fuzzy matching
+- Test coverage improvements:
+  - Added comprehensive optimization tests (nil maps, empty strings, single-pass regex, map lookups, duplicate detection)
+  - Added performance benchmarks for all critical paths (14 benchmarks)
+  - Test coverage increased from 63.1% to 64.6%
+  - Added BENCHMARKS.md and TESTING.md documentation
+
 ## v1.0.9
 - Performance optimizations:
   - Pre-compile regex patterns for include/exclude filters when using `--regex` mode

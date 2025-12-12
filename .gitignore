@@ -6,6 +6,10 @@ dist/
 bin/
 build/
 
+# Test coverage
+coverage.out
+coverage.html
+
 # OS files
 .DS_Store
 

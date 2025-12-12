@@ -1,10 +1,10 @@
 package main
 
 import (
-    "fmt"
-    "strconv"
-    "strings"
-    "time"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type Verb string
@@ -49,9 +49,8 @@ type CLIOptions struct {
 	OlderThan        time.Duration
 	YoungerThan      time.Duration
 	PodStatuses      []string
-	Unhealthy        bool
-	OutputJSON       bool
-	Debug            bool
+	Unhealthy bool
+	Debug     bool
 
 	// Label filtering and grouping
 	LabelFilters   []LabelFilter
@@ -63,7 +62,7 @@ type CLIOptions struct {
 
 	// Annotation filtering
 	AnnotationFilters  []LabelFilter
-	AnnotationKeyRegex  []string
+	AnnotationKeyRegex []string
 
 	// Node filters
 	NodeExact  []string
@@ -112,6 +111,7 @@ func parseArgs(argv []string) (CLIOptions, error) {
 	default:
 		return opts, fmt.Errorf("unknown verb: %s", argv[0])
 	}
+
 	// split on -- to collect ExtraFinal flags
 	var head []string
 	var tail []string
@@ -121,6 +121,7 @@ func parseArgs(argv []string) (CLIOptions, error) {
 	} else {
 		head = argv
 	}
+
 	// Determine resource and pattern positions with sensible defaults
 	// Format: <verb> [<resource>] [<pattern>] [flags...]
 	includeWasDefault := false
@@ -481,15 +482,6 @@ func parseArgs(argv []string) (CLIOptions, error) {
 		case "--colorize-labels":
 			opts.ColorizeLabels = true
 			continue
-		case "--output":
-			if i+1 >= len(flags) {
-				return opts, fmt.Errorf("--output requires a value")
-			}
-			if flags[i+1] == "json" {
-				opts.OutputJSON = true
-			}
-			i++
-			continue
 		}
 
 		// discovery-affecting passthrough flags we track specially
@@ -504,6 +496,7 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			// (NsPrefix/NsRegex) and force discovery with -A. Do not forward -n to discovery.
 			if i+1 < len(flags) && !strings.HasPrefix(flags[i+1], "-") {
 				val := flags[i+1]
+
 				if containsGlob(val) {
 					// Simple optimization: trailing '*' with no other glob -> prefix
 					if strings.HasSuffix(val, "*") && !strings.ContainsAny(val[:len(val)-1], "*?") {
@@ -548,6 +541,19 @@ func parseArgs(argv []string) (CLIOptions, error) {
 			continue
 		}
 
+		// Check if this looks like a pattern (non-flag token) rather than a passthrough flag
+		// Patterns can appear anywhere in the command, not just at position 2
+		if !strings.HasPrefix(f, "-") {
+			// This is a positional argument (likely a pattern), add to includes
+			// If we had a default pattern, remove it before adding the real one
+			if includeWasDefault && len(opts.Include) == 1 && opts.Include[0] == "*" {
+				opts.Include = nil
+				includeWasDefault = false
+			}
+			opts.Include = append(opts.Include, f)
+			continue
+		}
+
 		// output control flags for discovery should be filtered later; keep for final
 		opts.DiscoveryFlags = append(opts.DiscoveryFlags, f)
 		opts.FinalFlags = append(opts.FinalFlags, f)
@@ -579,6 +585,7 @@ func parseArgs(argv []string) (CLIOptions, error) {
 		opts.Include = opts.Include[1:]
 	}
 	opts.ExtraFinal = append(opts.ExtraFinal, tail...)
+
 	return opts, nil
 }
 
@@ -591,31 +598,30 @@ func indexOf(ss []string, s string) int {
 	return -1
 }
 
-
 // containsGlob returns true if s contains shell-style glob characters.
 func containsGlob(s string) bool {
-    return strings.ContainsAny(s, "*?")
+	return strings.ContainsAny(s, "*?")
 }
 
 // globToRegex converts a shell-style glob pattern to a full-string regex.
 // Example: "prod-*" -> "^prod-.*$" ; "*prod?" -> ".*prod.$"
 func globToRegex(glob string) string {
-    var b strings.Builder
-    b.WriteString("^")
-    for i := 0; i < len(glob); i++ {
-        c := glob[i]
-        switch c {
-        case '*':
-            b.WriteString(".*")
-        case '?':
-            b.WriteString(".")
-        case '.', '+', '(', ')', '|', '^', '$', '[', ']', '{', '}', '\\':
-            b.WriteByte('\\')
-            b.WriteByte(c)
-        default:
-            b.WriteByte(c)
-        }
-    }
-    b.WriteString("$")
-    return b.String()
+	var b strings.Builder
+	b.WriteString("^")
+	for i := 0; i < len(glob); i++ {
+		c := glob[i]
+		switch c {
+		case '*':
+			b.WriteString(".*")
+		case '?':
+			b.WriteString(".")
+		case '.', '+', '(', ')', '|', '^', '$', '[', ']', '{', '}', '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteString("$")
+	return b.String()
 }
