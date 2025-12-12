@@ -65,7 +65,7 @@ Key flags:
 - Annotation filters: `--annotation key=glob` | `--annotation-prefix key=prefix` | `--annotation-contains key=sub` | `--annotation-regex key=regex` | `--annotation-key-regex regex`
 - Grouping: `--group-by-label key` (adds `-L key` to kubectl table) | `--colorize-labels`
 - Node/container filters: `--node NAME` | `--node-prefix PFX` | `--node-regex RE` | `--restarts EXPR` (`>N`, `>=N`, `<N`, `<=N`, `=N`) | `--containers-not-ready` | `--reason REASON` | `--container-name NAME`
-- Output: `--output json`
+- Output: `-o/--output` (kubectl passthrough, e.g., `-o wide`, `-o json`)
 
 Examples:
 
